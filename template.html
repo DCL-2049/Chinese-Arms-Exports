@@ -203,7 +203,7 @@
   <div id="tablewrap">
     <table id="datatable">
       <thead><tr>
-        <th>Delivered</th><th>Recipient</th><th>Category</th><th>Weapon</th><th class="num">№ delivered</th><th class="num">TIV (m.)</th>
+        <th>Ordered</th><th>Recipient</th><th>Category</th><th>Weapon</th><th class="num">№ ordered</th><th>Delivered</th><th class="num">№ delivered</th><th class="num">TIV (m.)</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -235,6 +235,10 @@ const COUNTRIES = %%COUNTRIES%%;
    no number ordered, dl [[deliveryYear, numberDelivered, tivShare], ...], tiv row total,
    lic 1 = licensed production, fl = data flag/comment */
 const ROWS = %%ROWS%%;
+/* table rows: official Trade Register deals (deliveries 2000-2025, with order data)
+   + pre-2000 delivery groups. sy sort year, oy order year (oyU uncertain), no number
+   ordered (noU), nd number delivered (ndU), dy delivery-years string, cm comments */
+const TABLE = %%TABLE%%;
 /* recipient meta: lat/lon of capital, ne = Natural Earth polygon name (null = heat dot only), fl = non-state flag */
 const RECIP = %%RECIPIENTS%%;
 
@@ -940,16 +944,22 @@ function setTable(on) {
 tableBtn.addEventListener("click", () => setTable(!document.body.classList.contains("tableview")));
 document.getElementById("tablelink").addEventListener("click", (ev) => { ev.preventDefault(); setTable(true); });
 
-/* build table once: the full register (delivery-level, grouped by recipient × weapon) */
+/* build table once: Trade Register deals (2000-2025) + pre-2000 delivery groups */
 (function buildTable(){
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
   const tb = document.querySelector("#datatable tbody");
-  tb.innerHTML = ROWS.map(row => {
+  tb.innerHTML = TABLE.map(row => {
     const cat = '<span class="chip" style="background:' + CATCOL[row.c] + '"></span>' + CATLABEL[row.c];
-    const delY = row.dl[0][0] === row.dl[row.dl.length-1][0] ? String(row.dl[0][0]) : row.dl[0][0] + "–" + row.dl[row.dl.length-1][0];
-    const flag = row.fl ? ' <span class="flagged" title="' + row.fl.replace(/"/g, "&quot;") + '">?</span>' : "";
-    return "<tr><td class='dt'>" + delY + "</td><td class='nm'>" + row.r + flag +
-      "</td><td>" + cat + "</td><td>" + row.d + " — " + row.dd +
-      "</td><td class='num'>" + (row.no || "…") + "</td><td class='num'>" + row.tiv.toFixed(1) + "</td></tr>";
+    const meta = RECIP[row.r];
+    const flag = meta && meta.fl ? ' <span class="flagged" title="' + esc(meta.fl) + '">?</span>' : "";
+    const cm = row.cm ? ' <span class="flagged" title="' + esc(row.cm) + '">i</span>' : "";
+    return "<tr><td class='dt'>" + (row.oy ? row.oy + (row.oyU ? "?" : "") : "–") +
+      "</td><td class='nm'>" + esc(row.r) + flag +
+      "</td><td>" + cat + "</td><td>" + esc(row.d) + " — " + esc(row.dd) + cm +
+      "</td><td class='num'>" + (row.no ? row.no + (row.noU ? "?" : "") : "…") +
+      "</td><td class='dt'>" + esc(row.dy) +
+      "</td><td class='num'>" + (row.nd ? row.nd + (row.ndU ? "?" : "") : "…") +
+      "</td><td class='num'>" + row.tiv.toFixed(1) + "</td></tr>";
   }).join("");
 })();
 

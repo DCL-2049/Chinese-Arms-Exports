@@ -115,7 +115,7 @@ const ALIAS = {
   "Lao PDR": "Laos",
   "East Timor": "Timor-Leste",
 };
-const canon = (r) => ALIAS[r.trim()] || r.trim();
+const canon = (r) => { const k = r.trim().replace(/\*+$/, "").trim(); return ALIAS[k] || k; };
 
 const RECIPIENTS = {
   /* --- Asia --- */
@@ -209,6 +209,8 @@ const RECIPIENTS = {
   "Madagascar":     { lat: -18.88, lon: 47.51, ne: "Madagascar" },
   "Seychelles":     { lat: -4.62, lon: 55.45, ne: null },
   "Mauritius":      { lat: -20.16, lon: 57.50, ne: null },
+  "African Union":  { lat: 9.03,  lon: 38.74, ne: null, fl: "International organisation (peacekeeping forces); shown at AU HQ, Addis Ababa" },
+  "United Wa State (Myanmar)": { lat: 22.17, lon: 99.18, ne: null, fl: "Non-state armed group in Myanmar; shown at Pangkham" },
   /* --- Europe --- */
   "Albania":        { lat: 41.33, lon: 19.82, ne: "Albania" },
   "Serbia":         { lat: 44.79, lon: 20.45, ne: "Republic of Serbia" },
@@ -274,6 +276,94 @@ if (unmappedDesc.size) {
   for (const [k, v] of unmappedDesc) console.warn("   " + k + " (" + v + ")");
 }
 
+/* ---------------- official Trade Register export (deal-level, deliveries 2000-2025) ----------------
+ * Restores order year / numbers ordered for the table view, and supplies recipients
+ * the per-year mirror consolidated away (African Union, United Wa State).
+ * Columns: Recipient,Supplier,Year of order,?,Number ordered,?,Weapon designation,
+ * Weapon description,Deliveries in the Year Range,?,Year(s) of delivery,status,
+ * Comments,SIPRI TIV per unit,SIPRI TIV for total order,SIPRI TIV of delivered weapons
+ */
+function expandYears(s) {
+  const out = [];
+  for (const tok of String(s).split(";")) {
+    const m = /^(\d{4})(?:-(\d{4}))?$/.exec(tok.trim());
+    if (!m) continue;
+    for (let y = +m[1]; y <= (+m[2] || +m[1]); y++) out.push(y);
+  }
+  return out;
+}
+function compressYears(ys) {
+  if (!ys.length) return "";
+  const runs = [];
+  let a = ys[0], b = ys[0];
+  for (const y of ys.slice(1)) {
+    if (y === b + 1) b = y;
+    else { runs.push([a, b]); a = b = y; }
+  }
+  runs.push([a, b]);
+  return runs.map(([x, y]) => x === y ? String(x) : x + "–" + y).join("; ");
+}
+const DEALS = [];
+let regTivSum = 0;
+try {
+  const regRaw = rd("data/trade_register_china_2000_2025.csv");
+  const regLines = regRaw.split(/\r?\n/);
+  const rhi = regLines.findIndex(l => l.startsWith("Recipient,"));
+  const rt = parseCSV(regLines.slice(rhi).join("\n"));
+  for (const row of rt.slice(1)) {
+    if (!row || row.length < 16 || !row[0].trim()) continue;
+    const recRaw = row[0].trim();
+    const rec = canon(recRaw);
+    const isUnknown = /^unknown/i.test(recRaw);
+    if (!isUnknown && !RECIPIENTS[rec]) { unmappedRecip.set(rec, (unmappedRecip.get(rec) || 0) + 1); continue; }
+    const dYears = expandYears(row[10]);
+    const tivDel = parseFloat(row[15]) || 0;
+    regTivSum += tivDel;
+    const status = (row[11] || "").trim(), comments = (row[12] || "").trim();
+    DEALS.push({
+      sy: dYears[0] || parseInt(row[2], 10) || 2000,
+      oy: parseInt(row[2], 10) || null,
+      oyU: row[3].trim() === "?" ? 1 : 0,
+      r: isUnknown ? "Unknown recipient(s)" : rec,
+      unk: isUnknown ? 1 : 0,
+      c: mapCat(row[7]),
+      d: row[6].trim(),
+      dd: row[7].trim(),
+      no: parseInt(row[4], 10) || null,
+      noU: row[5].trim() === "?" ? 1 : 0,
+      nd: parseInt(row[8], 10) || 0,
+      ndU: row[9].trim() === "?" ? 1 : 0,
+      dy: compressYears(dYears) || row[10].trim(),
+      dYears,
+      tiv: +tivDel.toFixed(3),
+      cm: [status && status.toLowerCase() !== "new" ? status : "", comments].filter(Boolean).join(" · "),
+    });
+  }
+  console.log("Trade Register export: " + DEALS.length + " deals with deliveries 2000-2025, TIV " + Math.round(regTivSum) + "m");
+  /* supplement the per-year data with recipients the mirror lacks (TIV spread evenly across delivery years) */
+  const mirrorRecs = new Set([...deals.values()].map(d => d.r));
+  const suppl = new Map();
+  for (const dl of DEALS) {
+    if (dl.unk || mirrorRecs.has(dl.r) || !dl.dYears.length) continue;
+    const key = dl.r + "|" + dl.d + "|" + dl.dd;
+    let s = suppl.get(key);
+    if (!s) { s = { r: dl.r, c: dl.c, d: dl.d, dd: dl.dd, no: 0, dl: [], tiv: 0 }; suppl.set(key, s); }
+    s.no += dl.nd;
+    s.tiv += dl.tiv;
+    for (const y of dl.dYears) s.dl.push([y, Math.round(dl.nd / dl.dYears.length), +(dl.tiv / dl.dYears.length).toFixed(3)]);
+  }
+  for (const s of suppl.values()) deals.set(s.r + "|" + s.d + "|" + s.dd, s);
+  if (suppl.size) console.log("  supplemented from register (absent in per-year mirror): " +
+    [...new Set([...suppl.values()].map(s => s.r))].join(", "));
+} catch (e) {
+  console.warn("Trade Register export not found (" + e.message + ") — table view will be delivery-level only");
+}
+if (unmappedRecip.size) {
+  console.error("UNMAPPED RECIPIENTS in register (add to RECIPIENTS/ALIAS):");
+  for (const [k, v] of [...unmappedRecip].sort((a, b) => b[1] - a[1])) console.error("   " + k + "  (" + v + " rows)");
+  process.exit(1);
+}
+
 const ROWS = [...deals.values()];
 for (const d of ROWS) {
   /* merge multiple same-year transactions of one designation */
@@ -287,6 +377,22 @@ for (const d of ROWS) {
   d.tiv = +d.tiv.toFixed(3);
 }
 ROWS.sort((a, b) => a.dl[0][0] - b.dl[0][0] || a.r.localeCompare(b.r));
+
+/* ---------------- table rows: register deals (2000-2025) + pre-2000 mirror deliveries ---------------- */
+const TABLE_ROWS = [];
+for (const dl of DEALS) {
+  const { dYears, unk, ...t } = dl;
+  TABLE_ROWS.push(t);
+}
+for (const d of ROWS) {
+  const pre = d.dl.filter(x => x[0] < 2000);
+  if (!pre.length) continue;
+  const nd = pre.reduce((s, x) => s + x[1], 0);
+  const tiv = +pre.reduce((s, x) => s + x[2], 0).toFixed(3);
+  const dy = pre[0][0] === pre[pre.length - 1][0] ? String(pre[0][0]) : pre[0][0] + "–" + pre[pre.length - 1][0];
+  TABLE_ROWS.push({ sy: pre[0][0], oy: null, r: d.r, c: d.c, d: d.d, dd: d.dd, no: null, nd, dy, tiv, cm: "" });
+}
+TABLE_ROWS.sort((a, b) => a.sy - b.sy || a.r.localeCompare(b.r) || b.tiv - a.tiv);
 
 /* used recipients only */
 const usedRec = new Set(ROWS.map(d => d.r));
@@ -365,6 +471,7 @@ const out = tpl
   .replace("%%LAND%%", rd("data/ne_land_110m.json").trim())
   .replace("%%COUNTRIES%%", rd("data/ne_countries_110m.json").trim())
   .replace("%%ROWS%%", JSON.stringify(ROWS))
+  .replace("%%TABLE%%", JSON.stringify(TABLE_ROWS))
   .replace("%%RECIPIENTS%%", JSON.stringify(RECIP_OUT))
   .replace("%%CAPTIONS%%", JSON.stringify(CAPTIONS))
   .replace(/%%Y0%%/g, String(Y0))

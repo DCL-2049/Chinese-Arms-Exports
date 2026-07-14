@@ -37,30 +37,37 @@ across the Middle East and Africa.
   era.
 - Stat tiles: cumulative TIV delivered, recipient count, share to the top
   recipient — all live against the timeline and filter.
-- Table view: all 925 recipient × weapon rows — delivery years, designation
-  and description, numbers delivered, TIV.
+- Table view: all 692 Trade Register deals with deliveries 2000–2025 —
+  order year, designation and description, numbers ordered vs delivered,
+  delivery years, TIV, SIPRI's uncertainty markers (`?`) and comments (`i`)
+  — plus pre-2000 delivery groups from the per-year data.
 
 ## Data
 
 **Source: [SIPRI Arms Transfers Database](https://www.sipri.org/databases/armstransfers)
 © SIPRI** (DOI [10.55163/SAFC1241](https://doi.org/10.55163/SAFC1241)),
-Trade Register delivery values, supplier = China, all recipients, 1950–2025
-(March 2026 update vintage). Retrieved 14 July 2026 via the
-[Bewelge/globalArmsTransfers](https://github.com/Bewelge/globalArmsTransfers)
-mirror (rebuilt 16 June 2026 from SIPRI's per-year Trade Register exports);
-the China subset with provenance is committed at
-`data/trade_register_china.json`. SIPRI data is free for non-commercial use
-with attribution; this project is non-commercial and cites SIPRI as
-required.
+March 2026 update vintage, retrieved 14 July 2026. Three inputs, all
+committed under `data/`:
 
-**Reconciliation.** `tools/build.js` reconciles the register against
-SIPRI's own TIV import/export tables (supplier = China, exported from
-armstransfers.sipri.org on 14 July 2026, committed at
-`data/sipri_tiv_table_2000_2025.csv`): all 26 overlapping years match
-within rounding tolerance (worst per-year difference −6.3 TIV m of a
-2,745 TIV m year), and per-recipient 2000–2025 totals all match except the
-African Union's 14 TIV m (0.04% of the total), which the mirror folds
-away. Rebuild with `node tools/build.js` (template + data → `index.html`).
+- `trade_register_china_2000_2025.csv` — the official **Trade Register
+  export** from armstransfers.sipri.org (supplier = China, deliveries
+  2000–2025): deal-level order years, numbers ordered/delivered, comments.
+- `trade_register_china.json` — per-delivery-year values for the full
+  1954–2025 span, via the
+  [Bewelge/globalArmsTransfers](https://github.com/Bewelge/globalArmsTransfers)
+  mirror (rebuilt 16 June 2026 from SIPRI's per-year Trade Register
+  exports); drives the animation, heat map and pre-2000 coverage.
+- `sipri_tiv_table_2000_2025.csv` — SIPRI's **TIV import/export tables**
+  (supplier = China), the reconciliation baseline.
+
+SIPRI data is free for non-commercial use with attribution; this project
+is non-commercial and cites SIPRI as required.
+
+**Reconciliation** (`node tools/build.js` prints it on every rebuild):
+the Trade Register export sums to exactly the TIV table's 31,795 TIV m
+for 2000–2025; the per-year mirror matches the TIV tables in all 26
+overlapping years within rounding tolerance (worst difference 2.0 TIV m)
+and in every per-recipient 2000–2025 total.
 
 ### Things to know before quoting numbers
 
@@ -68,13 +75,12 @@ away. Rebuild with `node tools/build.js` (template + data → `index.html`).
   of military resources transferred (based on production cost and
   capability), not sale prices. Nothing in this visualization is a dollar
   figure, and TIV must not be compared with financial data.
-- **Deliveries, not orders.** Everything is dated by *delivery year*, using
-  SIPRI's own per-delivery-year TIV allocation — a 2015 order delivered
-  2017–2020 appears in 2017–2020. The mirror's compact schema drops SIPRI's
-  deal-ID/order-year metadata, so the table view shows delivery years and
-  numbers delivered rather than ordered-vs-delivered; re-exporting the full
-  Trade Register from SIPRI's site and extending `tools/build.js` would
-  restore those columns.
+- **Deliveries, not orders.** The animation is dated by *delivery year*,
+  using SIPRI's own per-delivery-year TIV allocation — a 2015 order
+  delivered 2017–2020 appears as arcs in 2017–2020. Order years and numbers
+  ordered appear in the table view (from the Trade Register export, which
+  covers deals with deliveries 2000–2025; pre-2000 rows show delivery data
+  only — export the register for 1950–2025 to extend order data backwards).
 - **Major conventional weapons only.** SIPRI covers aircraft, ships,
   armoured vehicles, artillery, missiles, air-defence systems, sensors and
   engines — **not small arms**. Chinese small-arms exports are substantial
@@ -88,7 +94,11 @@ away. Rebuild with `node tools/build.js` (template + data → `index.html`).
   into *armour*; naval weapons, torpedoes and engines into *other*; SAM
   *systems* and anti-aircraft guns are *air defence* while the missiles
   themselves are *missiles*, following SIPRI's own category assignments.
-- **Recipient names** are the mirror's modern-entity consolidation (e.g.
-  North and South Yemen appear as Yemen, transfers to the DDR-era entities
-  under today's names), mapped to Natural Earth ADMIN names for the
-  choropleth.
+- **Recipient names** follow the mirror's modern-entity consolidation (e.g.
+  North and South Yemen appear as Yemen), mapped to Natural Earth ADMIN
+  names for the choropleth. Non-state and organisational recipients from
+  the register — the African Union (peacekeeping aid) and the United Wa
+  State (Myanmar) — are kept as SIPRI records them, flagged `?` in the
+  table and drawn as heat dots at a representative point. Deals SIPRI
+  attributes to "unknown recipient(s)" appear in the table but not on the
+  map.
