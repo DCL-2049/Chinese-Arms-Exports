@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Made in China — Chinese arms exports, 1950–2025</title>
+<title>Made in China — Chinese arms exports, 2000–2025</title>
 <style>
   :root {
     --page:       #0d0d0d;
@@ -156,7 +156,7 @@
 <div id="app">
   <header>
     <h1>Made in China</h1>
-    <div class="sub">Chinese exports of major conventional weapons, 1950 – 2025 · every delivery, animated · Source: SIPRI Arms Transfers Database</div>
+    <div class="sub">Chinese exports of major conventional weapons, 2000 – 2025 · every delivery, animated · Source: SIPRI Arms Transfers Database</div>
   </header>
 
   <div id="controls">
@@ -235,9 +235,9 @@ const COUNTRIES = %%COUNTRIES%%;
    no number ordered, dl [[deliveryYear, numberDelivered, tivShare], ...], tiv row total,
    lic 1 = licensed production, fl = data flag/comment */
 const ROWS = %%ROWS%%;
-/* table rows: official Trade Register deals (deliveries 2000-2025, with order data)
-   + pre-2000 delivery groups. sy sort year, oy order year (oyU uncertain), no number
-   ordered (noU), nd number delivered (ndU), dy delivery-years string, cm comments */
+/* table rows: official Trade Register deals (deliveries 2000-2025, with order data).
+   sy sort year, oy order year (oyU uncertain), no number ordered (noU),
+   nd number delivered (ndU), dy delivery-years string, cm comments */
 const TABLE = %%TABLE%%;
 /* recipient meta: lat/lon of capital, ne = Natural Earth polygon name (null = heat dot only), fl = non-state flag */
 const RECIP = %%RECIPIENTS%%;
@@ -662,7 +662,7 @@ let T = Y0;
 let playing = false;
 let catFilter = "all";
 let trailsOn = true;
-const BASE_SPEED = 1.0;   /* timeline-years per real second at 1x (~76s full run) */
+const BASE_SPEED = 0.4;   /* timeline-years per real second at 1x (~65s full run) */
 let speedMul = 1;
 const scrub = document.getElementById("scrub");
 const readout = document.getElementById("date-readout");
@@ -864,7 +864,7 @@ function drawDensity() {
   const el = document.getElementById("yearticks");
   let html = "";
   for (let y = Y0; y < Y1; y++) {
-    html += '<span>' + (y % 10 === 0 ? y : "") + "</span>";
+    html += '<span>' + (y % 5 === 0 ? y : "") + "</span>";
   }
   el.innerHTML = html;
 })();

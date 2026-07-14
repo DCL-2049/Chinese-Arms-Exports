@@ -247,6 +247,7 @@ const unmappedRecip = new Map();
 let txCount = 0;
 for (const [yStr, recMap] of Object.entries(china)) {
   const y = parseInt(yStr, 10);
+  if (y < 2000) continue;   /* project scope: deliveries 2000 onward */
   for (const [recRaw, txs] of Object.entries(recMap)) {
     const rec = canon(recRaw);
     if (!RECIPIENTS[rec]) { unmappedRecip.set(rec, (unmappedRecip.get(rec) || 0) + txs.length); continue; }
@@ -378,21 +379,9 @@ for (const d of ROWS) {
 }
 ROWS.sort((a, b) => a.dl[0][0] - b.dl[0][0] || a.r.localeCompare(b.r));
 
-/* ---------------- table rows: register deals (2000-2025) + pre-2000 mirror deliveries ---------------- */
-const TABLE_ROWS = [];
-for (const dl of DEALS) {
-  const { dYears, unk, ...t } = dl;
-  TABLE_ROWS.push(t);
-}
-for (const d of ROWS) {
-  const pre = d.dl.filter(x => x[0] < 2000);
-  if (!pre.length) continue;
-  const nd = pre.reduce((s, x) => s + x[1], 0);
-  const tiv = +pre.reduce((s, x) => s + x[2], 0).toFixed(3);
-  const dy = pre[0][0] === pre[pre.length - 1][0] ? String(pre[0][0]) : pre[0][0] + "–" + pre[pre.length - 1][0];
-  TABLE_ROWS.push({ sy: pre[0][0], oy: null, r: d.r, c: d.c, d: d.d, dd: d.dd, no: null, nd, dy, tiv, cm: "" });
-}
-TABLE_ROWS.sort((a, b) => a.sy - b.sy || a.r.localeCompare(b.r) || b.tiv - a.tiv);
+/* ---------------- table rows: the official Trade Register deals ---------------- */
+const TABLE_ROWS = DEALS.map(({ dYears, unk, ...t }) => t)
+  .sort((a, b) => a.sy - b.sy || a.r.localeCompare(b.r) || b.tiv - a.tiv);
 
 /* used recipients only */
 const usedRec = new Set(ROWS.map(d => d.r));
@@ -456,12 +445,10 @@ try {
 
 /* ---------------- captions ---------------- */
 const CAPTIONS = [
-  [1955, 1979, "<b>Fraternal arms.</b> Mao-era China arms its allies — Vietnam through the war years, North Korea, Albania after the Soviet split, and Pakistan after 1965, when Western embargoes push Islamabad toward Beijing."],
-  [1981, 1989, "<b>The Iran–Iraq war.</b> China sells to <b>both sides</b> — Type-59/69 tanks, F-6/F-7 fighters and Silkworm anti-ship missiles flow to Baghdad and Tehran alike. The 1980s are China's first arms-export boom."],
-  [1990, 1999, "<b>The quiet decade.</b> After Tiananmen and the Soviet collapse, cheap Russian surplus floods the market and Chinese exports slump — Pakistan, Myanmar and Iran keep the pipeline alive."],
-  [2007, 2013, "<b>The JF-17 era.</b> Co-developed with Pakistan and assembled at Kamra under licence, the JF-17 Thunder anchors a relationship that will absorb nearly half of all Chinese arms exports."],
+  [2000, 2006, "<b>The budget supplier.</b> F-7 fighters, K-8 trainers, patrol boats and towed guns — China opens the century as the developing world's affordable armorer, with Pakistan and Iran the anchor customers."],
+  [2007, 2013, "<b>The JF-17 era.</b> Co-developed with Pakistan and assembled at Kamra under licence, the JF-17 Thunder anchors a relationship that will absorb ~44% of all Chinese arms exports."],
   [2014, 2020, "<b>Drones where the US won't sell.</b> CH-3/CH-4 and Wing Loong armed UAVs go to Saudi Arabia, the UAE, Iraq, Egypt and Nigeria — customers Washington refused. China becomes the leading exporter of armed drones."],
-  [2021, 2026, "<b>Submarines and frigates.</b> Type-054A/P frigates and Hangor-class submarines for Pakistan, an S26T submarine for Thailand — big-ticket naval deals now lead, and Pakistan has taken ~44% of everything China exported since 2000."],
+  [2021, 2026, "<b>Submarines and frigates.</b> Type-054A/P frigates and Hangor-class submarines for Pakistan, an S26T submarine for Thailand — big-ticket naval deals now lead, and Pakistan's share keeps climbing."],
 ];
 
 /* ---------------- substitute ---------------- */

@@ -1,19 +1,18 @@
 # Made in China
 
 An interactive globe visualization of **Chinese exports of major conventional
-weapons, 1954 – 2025**: every delivery in the SIPRI Arms Transfers Database
+weapons, 2000 – 2025**: every delivery in the SIPRI Arms Transfers Database
 animated as arcs from China to each recipient, weighted by deal size, with a
 country heat map of cumulative transfers.
 
 Open **`index.html`** in any browser — a single self-contained file, no
 dependencies, no build step, no network access required.
 
-The story it tells: Cold-War fraternal deals (Vietnam, North Korea, Albania,
-Pakistan), China supplying **both sides** of the Iran–Iraq war in its first
-export boom, the quiet 1990s, the JF-17-and-submarines relationship with
-Pakistan — which has taken **~33% of everything China has ever exported
-(~44% since 2000)** and dominates the map — and the 2014+ armed-drone wave
-across the Middle East and Africa.
+The story it tells: China opens the century as the developing world's budget
+armorer, the JF-17-and-submarines relationship with Pakistan grows to
+dominate the map — **Pakistan takes 44% of everything China exports** — and
+the 2014+ armed-drone wave reaches the Middle East and Africa where US
+manufacturers wouldn't sell.
 
 ## Features
 
@@ -22,7 +21,7 @@ across the Middle East and Africa.
   with √TIV** of that recipient-year's deliveries (TIV spans four orders of
   magnitude — √ scaling plus a width cap keeps the Pakistan extreme
   readable).
-- Yearly timeline scrubber with play at ½×/1×/2× (full run ≈ 72 s at 1×);
+- Yearly timeline scrubber with play at ½×/1×/2× (full run ≈ 65 s at 1×);
   the density strip is a bar chart of TIV delivered per year, stacked by
   weapon category, and re-scales with the category filter.
 - Weapon-category filter: aircraft / ships / missiles / armour (incl.
@@ -32,15 +31,15 @@ across the Middle East and Africa.
   validated sequential ramp (√ scale, fixed all-era maximum so color keeps
   meaning while the timeline plays). Recipients absent from the 110m
   polygon set (Bahrain, Seychelles) render as heat dots at their capitals.
-- Captions at key moments: Mao-era fraternal arms, the Iran–Iraq war, the
-  post-Tiananmen slump, the JF-17 program, the drone-export era, the naval
-  era.
+- Captions at key moments: the budget-supplier 2000s, the JF-17 program,
+  the drone-export era, the naval era.
 - Stat tiles: cumulative TIV delivered, recipient count, share to the top
   recipient — all live against the timeline and filter.
 - Table view: all 692 Trade Register deals with deliveries 2000–2025 —
   order year, designation and description, numbers ordered vs delivered,
-  delivery years, TIV, SIPRI's uncertainty markers (`?`) and comments (`i`)
-  — plus pre-2000 delivery groups from the per-year data.
+  delivery years, TIV, SIPRI's uncertainty markers (`?`) and comments
+  (`i`). Deals ordered in the 1990s with deliveries from 2000 are included;
+  their pre-2000 deliveries are outside this project's scope.
 
 ## Data
 
@@ -52,11 +51,11 @@ committed under `data/`:
 - `trade_register_china_2000_2025.csv` — the official **Trade Register
   export** from armstransfers.sipri.org (supplier = China, deliveries
   2000–2025): deal-level order years, numbers ordered/delivered, comments.
-- `trade_register_china.json` — per-delivery-year values for the full
-  1954–2025 span, via the
+- `trade_register_china.json` — per-delivery-year values via the
   [Bewelge/globalArmsTransfers](https://github.com/Bewelge/globalArmsTransfers)
   mirror (rebuilt 16 June 2026 from SIPRI's per-year Trade Register
-  exports); drives the animation, heat map and pre-2000 coverage.
+  exports); drives the animation and heat map. The file covers 1954–2025;
+  the build uses 2000 onward.
 - `sipri_tiv_table_2000_2025.csv` — SIPRI's **TIV import/export tables**
   (supplier = China), the reconciliation baseline.
 
@@ -77,10 +76,8 @@ and in every per-recipient 2000–2025 total.
   figure, and TIV must not be compared with financial data.
 - **Deliveries, not orders.** The animation is dated by *delivery year*,
   using SIPRI's own per-delivery-year TIV allocation — a 2015 order
-  delivered 2017–2020 appears as arcs in 2017–2020. Order years and numbers
-  ordered appear in the table view (from the Trade Register export, which
-  covers deals with deliveries 2000–2025; pre-2000 rows show delivery data
-  only — export the register for 1950–2025 to extend order data backwards).
+  delivered 2017–2020 appears as arcs in 2017–2020. Order years and
+  numbers ordered appear in the table view.
 - **Major conventional weapons only.** SIPRI covers aircraft, ships,
   armoured vehicles, artillery, missiles, air-defence systems, sensors and
   engines — **not small arms**. Chinese small-arms exports are substantial
