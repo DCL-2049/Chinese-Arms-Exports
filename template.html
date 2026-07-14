@@ -203,7 +203,7 @@
   <div id="tablewrap">
     <table id="datatable">
       <thead><tr>
-        <th>Ordered</th><th>Recipient</th><th>Category</th><th>Weapon</th><th class="num">№ ordered</th><th>Delivered</th><th class="num">№ delivered</th><th class="num">TIV (m.)</th>
+        <th>Delivered</th><th>Recipient</th><th>Category</th><th>Weapon</th><th class="num">№ delivered</th><th class="num">TIV (m.)</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -262,7 +262,7 @@ for (const row of ROWS) {
     let ev = EVMAP.get(key);
     if (!ev) { ev = { rec: row.r, y, cat: row.c, tiv: 0, items: [] }; EVMAP.set(key, ev); }
     ev.tiv += tiv;
-    ev.items.push({ n, d: row.d, dd: row.dd, lic: row.lic });
+    ev.items.push({ n, d: row.d, dd: row.dd });
   }
 }
 const EVENTS = [...EVMAP.values()].filter(e => RECIP[e.rec]);
@@ -767,7 +767,7 @@ const statTopK = document.getElementById("stat-top-k");
 const feedEl = document.getElementById("feed-items");
 const capEl = document.getElementById("caption");
 const fmtTiv = (v) => v >= 10000 ? (v/1000).toFixed(1) + "k" : Math.round(v).toLocaleString("en-US");
-const itemLine = (it) => (it.n ? it.n + " × " : "") + it.d + " " + it.dd.toLowerCase() + (it.lic ? " (licensed prod.)" : "");
+const itemLine = (it) => (it.n ? it.n + " × " : "") + (it.d.toLowerCase() === it.dd.toLowerCase() ? it.dd.toLowerCase() : it.d + " " + it.dd.toLowerCase());
 
 /* captions at key moments (year ranges) */
 const CAPTIONS = %%CAPTIONS%%;
@@ -940,20 +940,16 @@ function setTable(on) {
 tableBtn.addEventListener("click", () => setTable(!document.body.classList.contains("tableview")));
 document.getElementById("tablelink").addEventListener("click", (ev) => { ev.preventDefault(); setTable(true); });
 
-/* build table once: the full register */
+/* build table once: the full register (delivery-level, grouped by recipient × weapon) */
 (function buildTable(){
   const tb = document.querySelector("#datatable tbody");
-  const rows = [...ROWS].sort((a,b) => (a.oy - b.oy) || a.r.localeCompare(b.r));
-  tb.innerHTML = rows.map(row => {
+  tb.innerHTML = ROWS.map(row => {
     const cat = '<span class="chip" style="background:' + CATCOL[row.c] + '"></span>' + CATLABEL[row.c];
-    const delY = row.dl.length ? (row.dl[0][0] === row.dl[row.dl.length-1][0] ? String(row.dl[0][0]) : row.dl[0][0] + "–" + row.dl[row.dl.length-1][0]) : "–";
-    const nDel = row.dl.reduce((s, d) => s + (d[1] || 0), 0);
+    const delY = row.dl[0][0] === row.dl[row.dl.length-1][0] ? String(row.dl[0][0]) : row.dl[0][0] + "–" + row.dl[row.dl.length-1][0];
     const flag = row.fl ? ' <span class="flagged" title="' + row.fl.replace(/"/g, "&quot;") + '">?</span>' : "";
-    const lic = row.lic ? ' <span class="flagged" title="Licensed production in recipient country">lic</span>' : "";
-    return "<tr><td class='dt'>" + (row.oy || "–") + "</td><td class='nm'>" + row.r + flag +
-      "</td><td>" + cat + "</td><td>" + row.d + " — " + row.dd + lic +
-      "</td><td class='num'>" + (row.no || "…") + "</td><td class='dt'>" + delY +
-      "</td><td class='num'>" + (nDel || "…") + "</td><td class='num'>" + row.tiv.toFixed(1) + "</td></tr>";
+    return "<tr><td class='dt'>" + delY + "</td><td class='nm'>" + row.r + flag +
+      "</td><td>" + cat + "</td><td>" + row.d + " — " + row.dd +
+      "</td><td class='num'>" + (row.no || "…") + "</td><td class='num'>" + row.tiv.toFixed(1) + "</td></tr>";
   }).join("");
 })();
 

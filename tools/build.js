@@ -2,13 +2,11 @@
 /* Build index.html from template.html + SIPRI data.
  *
  * Inputs:
- *   data/trade_register_china.csv  — SIPRI Trade Register export, supplier = China.
- *     Modern schema (one row per deal-ID × delivery year):
- *     SIPRI AT Database ID,Supplier,Recipient,Designation,Description,Armament category,
- *     Order date,Order date is estimate,Numbers delivered,Numbers delivered is estimate,
- *     Delivery year,Delivery year is estimate,Status,SIPRI estimate,TIV deal unit,
- *     TIV delivery values,Local production
- *   data/sipri_tiv_table_2000_2025.csv — SIPRI TIV tables (recipient × year) for cross-check.
+ *   data/trade_register_china.json — SIPRI Trade Register, supplier = China,
+ *     delivery-level rows: {year: {recipient: [[numberDelivered, tivDeliveryValue,
+ *     description, designation], ...]}} (see "source"/"via" fields for provenance).
+ *   data/sipri_tiv_table_2000_2025.csv — SIPRI TIV tables (recipient × year),
+ *     exported from armstransfers.sipri.org, used to reconcile totals.
  *   data/ne_land_110m.json, data/ne_countries_110m.json — Natural Earth geometry.
  *
  * Output: index.html (single self-contained file).
@@ -19,7 +17,7 @@ const path = require("path");
 const ROOT = path.join(__dirname, "..");
 const rd = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 
-/* ---------------- CSV parsing (handles quoted fields) ---------------- */
+/* ---------------- CSV parsing (for the cross-check table) ---------------- */
 function parseCSV(text) {
   const rows = [];
   let row = [], field = "", q = false;
@@ -40,54 +38,82 @@ function parseCSV(text) {
   return rows;
 }
 
-/* ---------------- category mapping: SIPRI armament category -> 7 buckets ---------------- */
-const CATMAP = {
-  "aircraft": "aircraft",
-  "ships": "ships",
-  "missiles": "missiles",
-  "armoured vehicles": "armour",
-  "artillery": "armour",
-  "air defence systems": "airdef",
-  "sensors": "sensors",
-  "naval weapons": "other",
-  "anti-submarine warfare weapons": "other",
-  "engines": "other",
-  "satellites": "other",
-  "armoured vehicle": "armour",
-  "air defence system": "airdef",
-  "other": "other",
+/* ---------------- category mapping ----------------
+ * The register's "description" field is SIPRI's controlled vocabulary; fold it
+ * into 7 buckets following SIPRI's own armament categories: Artillery merges
+ * into armour; Naval weapons / engines / turrets / torpedoes into other.
+ */
+const DESC_CAT = {
+  /* aircraft (incl. UAVs, per SIPRI) */
+  "fighter aircraft": "aircraft", "fighter/ground-attack aircraft": "aircraft",
+  "bomber aircraft": "aircraft", "trainer/combat aircraft": "aircraft",
+  "trainer aircraft": "aircraft", "(armed) trainer aircraft": "aircraft",
+  "light transport aircraft": "aircraft", "transport aircraft": "aircraft",
+  "light aircraft": "aircraft", "airborne early-warning aircraft": "aircraft",
+  "helicopter": "aircraft", "combat helicopter": "aircraft",
+  "anti-submarine helicopter": "aircraft",
+  "armed drone": "aircraft", "reconnaissance drone": "aircraft",
+  "(armed) reconnaissance drone": "aircraft",
+  /* ships */
+  "patrol boat": "ships", "torpedo boat": "ships", "missile boat": "ships",
+  "patrol ship": "ships", "frigate": "ships", "corvette": "ships",
+  "submarine": "ships", "landing ship": "ships", "minesweeper": "ships",
+  "replenishment ship": "ships", "support ship": "ships", "training ship": "ships",
+  "signals intelligence ship": "ships", "amphibious assault ship": "ships",
+  /* missiles (SIPRI's Missiles category: incl. SAMs, guided bombs/rockets) */
+  "anti-ship missile": "missiles", "anti-ship/land-attack missile": "missiles",
+  "anti-tank missile": "missiles", "surface-to-surface missile": "missiles",
+  "surface-to-surface missile launcher": "missiles",
+  "short-range air-to-air missile": "missiles", "long-range air-to-air missile": "missiles",
+  "air-to-surface missile": "missiles", "air-to-surface/anti-ship missile": "missiles",
+  "anti-radar missile": "missiles", "portable surface-to-air missile": "missiles",
+  "surface-to-air missile": "missiles", "guided bomb": "missiles",
+  "guided glide bomb": "missiles", "guided rocket": "missiles",
+  "coastal defence system": "missiles",
+  /* armour & artillery */
+  "tank": "armour", "light tank": "armour", "tank destroyer": "armour",
+  "armoured personnel carrier": "armour", "infantry fighting vehicle": "armour",
+  "fire-support vehicle": "armour", "armoured recovery vehicle": "armour",
+  "armoured supply vehicle": "armour", "armoured bridgelayer": "armour",
+  "self-propelled gun": "armour", "towed gun": "armour",
+  "multiple rocket launcher": "armour", "self-propelled mortar": "armour",
+  "mortar": "armour", "tank turret": "armour", "infantry fighting vehicle turret": "armour",
+  /* air defence systems */
+  "surface-to-air missile system": "airdef", "mobile surface-to-air missile system": "airdef",
+  "naval surface-to-air missile system": "airdef", "anti-aircraft gun": "airdef",
+  "anti-aircraft gun/surface-to-air missile system": "airdef",
+  /* sensors */
+  "air-search radar": "sensors", "fire-control radar": "sensors",
+  "air-search/fire-control radar": "sensors", "sea-search radar": "sensors",
+  "height-finding radar": "sensors", "artillery locating radar": "sensors",
+  "air-search system": "sensors", "combat aircraft radar": "sensors",
+  "aircraft electro-optical system": "sensors",
+  /* other (naval weapons, engines, torpedoes) */
+  "naval gun": "other", "anti-ship torpedo": "other",
+  "ship engine": "other", "vehicle engine": "other",
 };
-function mapCat(c) {
-  const k = c.trim().toLowerCase();
-  if (CATMAP[k]) return CATMAP[k];
-  console.warn("  ! unmapped armament category:", JSON.stringify(c), "-> other");
+const unmappedDesc = new Map();
+function mapCat(desc) {
+  const k = desc.trim().toLowerCase();
+  if (DESC_CAT[k]) return DESC_CAT[k];
+  unmappedDesc.set(desc, (unmappedDesc.get(desc) || 0) + 1);
   return "other";
 }
 
 /* ---------------- recipient canonicalization + capitals ----------------
- * key: SIPRI recipient name (after alias folding)
+ * key: recipient name as in the register (after alias folding)
  * ne:  Natural Earth 110m ADMIN name (null -> heat dot at capital only)
- * fl:  note for non-state / special recipients (shown as ? flag in table)
+ * fl:  note for special recipients (shown as ? flag in table)
  */
 const ALIAS = {
-  "Cote d'Ivoire": "Côte d'Ivoire", "Cote dIvoire": "Côte d'Ivoire",
-  "Turkiye": "Türkiye", "Turkey": "Türkiye",
+  "Cote d'Ivoire": "Côte d'Ivoire",
+  "Turkiye": "Turkey", "Türkiye": "Turkey",
   "UAE": "United Arab Emirates",
   "Viet Nam": "Vietnam",
-  "Kampuchea": "Cambodia (Khmer Rouge era)",
   "Burma": "Myanmar",
-  "Zaire": "DR Congo", "Congo, DR": "DR Congo", "Congo, Democratic Republic": "DR Congo",
-  "Congo, Republic": "Congo",
-  "Korea, North": "North Korea", "Korea North": "North Korea",
-  "Korea, South": "South Korea",
-  "Yemen, North": "North Yemen", "Yemen Arab Republic": "North Yemen",
-  "Yemen, South": "South Yemen", "South Yemen (PDRY)": "South Yemen",
-  "Tanzania, United Republic of": "Tanzania",
-  "Lao PDR": "Laos", "Laos PDR": "Laos",
-  "Brunei Darussalam": "Brunei",
-  "Timor Leste": "Timor-Leste", "East Timor": "Timor-Leste",
-  "Macedonia": "North Macedonia",
-  "Bosnia-Herzegovina": "Bosnia and Herzegovina",
+  "Korea, North": "North Korea",
+  "Lao PDR": "Laos",
+  "East Timor": "Timor-Leste",
 };
 const canon = (r) => ALIAS[r.trim()] || r.trim();
 
@@ -103,13 +129,11 @@ const RECIPIENTS = {
   "Indonesia":      { lat: -6.19, lon: 106.82, ne: "Indonesia" },
   "Malaysia":       { lat: 3.14,  lon: 101.69, ne: "Malaysia" },
   "Cambodia":       { lat: 11.56, lon: 104.92, ne: "Cambodia" },
-  "Cambodia (Khmer Rouge era)": { lat: 11.56, lon: 104.92, ne: null, fl: "Deliveries to Democratic Kampuchea / Khmer Rouge government" },
   "Laos":           { lat: 17.97, lon: 102.60, ne: "Laos" },
   "Vietnam":        { lat: 21.03, lon: 105.85, ne: "Vietnam" },
   "North Korea":    { lat: 39.03, lon: 125.75, ne: "North Korea" },
   "Nepal":          { lat: 27.72, lon: 85.32, ne: "Nepal" },
   "Afghanistan":    { lat: 34.53, lon: 69.17, ne: "Afghanistan" },
-  "Mujahedin (Afghanistan)*": { lat: 34.53, lon: 69.17, ne: null, fl: "Non-state: Afghan Mujahedin forces" },
   "Timor-Leste":    { lat: -8.56, lon: 125.57, ne: "East Timor" },
   "Philippines":    { lat: 14.60, lon: 120.98, ne: "Philippines" },
   "Mongolia":       { lat: 47.89, lon: 106.91, ne: "Mongolia" },
@@ -121,7 +145,6 @@ const RECIPIENTS = {
   "Azerbaijan":     { lat: 40.41, lon: 49.87, ne: "Azerbaijan" },
   "Armenia":        { lat: 40.18, lon: 44.51, ne: "Armenia" },
   "Georgia":        { lat: 41.72, lon: 44.79, ne: "Georgia" },
-  "United Wa State (Myanmar)*": { lat: 22.17, lon: 99.18, ne: null, fl: "Non-state: United Wa State Army, Myanmar" },
   "Bhutan":         { lat: 27.47, lon: 89.64, ne: "Bhutan" },
   /* --- Middle East --- */
   "Saudi Arabia":   { lat: 24.71, lon: 46.68, ne: "Saudi Arabia" },
@@ -134,9 +157,7 @@ const RECIPIENTS = {
   "Syria":          { lat: 33.51, lon: 36.29, ne: "Syria" },
   "Lebanon":        { lat: 33.89, lon: 35.50, ne: "Lebanon" },
   "Israel":         { lat: 32.08, lon: 34.78, ne: "Israel" },
-  "Türkiye":        { lat: 39.93, lon: 32.86, ne: "Turkey" },
-  "North Yemen":    { lat: 15.37, lon: 44.19, ne: null, fl: "Yemen Arab Republic (pre-1990 unification)" },
-  "South Yemen":    { lat: 12.79, lon: 45.02, ne: null, fl: "People's Democratic Republic of Yemen (pre-1990)" },
+  "Turkey":         { lat: 39.93, lon: 32.86, ne: "Turkey" },
   "Yemen":          { lat: 15.37, lon: 44.19, ne: "Yemen" },
   /* --- Africa --- */
   "Algeria":        { lat: 36.75, lon: 3.06, ne: "Algeria" },
@@ -188,7 +209,6 @@ const RECIPIENTS = {
   "Madagascar":     { lat: -18.88, lon: 47.51, ne: "Madagascar" },
   "Seychelles":     { lat: -4.62, lon: 55.45, ne: null },
   "Mauritius":      { lat: -20.16, lon: 57.50, ne: null },
-  "African Union**": { lat: 9.03, lon: 38.74, ne: null, fl: "International organisation (peacekeeping); dot at AU HQ, Addis Ababa" },
   /* --- Europe --- */
   "Albania":        { lat: 41.33, lon: 19.82, ne: "Albania" },
   "Serbia":         { lat: 44.79, lon: 20.45, ne: "Republic of Serbia" },
@@ -210,6 +230,7 @@ const RECIPIENTS = {
   "Bahamas":        { lat: 25.04, lon: -77.35, ne: "The Bahamas" },
   "Mexico":         { lat: 19.43, lon: -99.13, ne: "Mexico" },
   "Cuba":           { lat: 23.11, lon: -82.37, ne: "Cuba" },
+  "Nicaragua":      { lat: 12.13, lon: -86.25, ne: "Nicaragua" },
   /* --- Oceania --- */
   "Australia":      { lat: -35.28, lon: 149.13, ne: "Australia" },
   "Papua New Guinea": { lat: -9.44, lon: 147.18, ne: "Papua New Guinea" },
@@ -217,91 +238,55 @@ const RECIPIENTS = {
 };
 
 /* ---------------- load register ---------------- */
-const regPath = "data/trade_register_china.csv";
-const raw = rd(regPath);
-/* skip preamble lines before the header row (SIPRI exports carry a preamble) */
-const lines = raw.split(/\r?\n/);
-let hdrIdx = lines.findIndex(l => /SIPRI AT Database ID|Supplier.*Recipient.*Designation/i.test(l));
-if (hdrIdx < 0) throw new Error("register header not found in " + regPath);
-const table = parseCSV(lines.slice(hdrIdx).join("\n"));
-const header = table[0].map(h => h.trim());
-const col = (name) => {
-  const i = header.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  if (i < 0) throw new Error("column not found: " + name + " in " + JSON.stringify(header));
-  return i;
-};
-const I = {
-  id: col("SIPRI AT Database ID"),
-  sup: col("Supplier"),
-  rec: col("Recipient"),
-  des: col("Designation"),
-  desc: col("Description"),
-  cat: col("Armament category"),
-  oy: col("Order date"),
-  oyEst: col("Order date is estimate"),
-  n: col("Numbers delivered"),
-  nEst: col("Numbers delivered is estimate"),
-  dy: col("Delivery year"),
-  dyEst: col("Delivery year is estimate"),
-  status: col("Status"),
-  tivUnit: col("TIV deal unit"),
-  tivDel: col("TIV delivery values"),
-  local: col("Local production"),
-};
-
-const deals = new Map(); /* dealId|rec|des -> row */
-let skipped = 0, unmappedRecip = new Map();
-for (let r = 1; r < table.length; r++) {
-  const row = table[r];
-  if (!row || row.length < header.length - 1 || !row[I.rec]) continue;
-  if (row[I.sup] && row[I.sup].trim() !== "China") continue;
-  const rec = canon(row[I.rec]);
-  if (!RECIPIENTS[rec]) {
-    unmappedRecip.set(rec, (unmappedRecip.get(rec) || 0) + 1);
+const reg = JSON.parse(rd("data/trade_register_china.json"));
+const china = reg.china;
+const deals = new Map(); /* recipient|designation|description -> row */
+const unmappedRecip = new Map();
+let txCount = 0;
+for (const [yStr, recMap] of Object.entries(china)) {
+  const y = parseInt(yStr, 10);
+  for (const [recRaw, txs] of Object.entries(recMap)) {
+    const rec = canon(recRaw);
+    if (!RECIPIENTS[rec]) { unmappedRecip.set(rec, (unmappedRecip.get(rec) || 0) + txs.length); continue; }
+    for (const [nStr, tivStr, desc, des] of txs) {
+      txCount++;
+      const n = parseInt(nStr, 10) || 0;
+      const tiv = parseFloat(tivStr) || 0;
+      const key = rec + "|" + des + "|" + desc;
+      let d = deals.get(key);
+      if (!d) {
+        d = { r: rec, c: mapCat(desc), d: des, dd: desc, no: 0, dl: [], tiv: 0 };
+        deals.set(key, d);
+      }
+      d.no += n;
+      d.tiv += tiv;
+      d.dl.push([y, n, +tiv.toFixed(3)]);
+    }
   }
-  const dy = parseInt(row[I.dy], 10);
-  const tiv = parseFloat(row[I.tivDel]);
-  if (!Number.isFinite(dy)) { skipped++; continue; }        /* undelivered/open order rows */
-  const n = parseInt(row[I.n], 10) || 0;
-  const key = row[I.id] + "|" + rec + "|" + row[I.des];
-  let d = deals.get(key);
-  if (!d) {
-    d = {
-      r: rec,
-      c: mapCat(row[I.cat]),
-      d: row[I.des].trim(),
-      dd: row[I.desc].trim(),
-      oy: parseInt(row[I.oy], 10) || null,
-      oyEst: /yes/i.test(row[I.oyEst] || ""),
-      no: 0,
-      dl: [],
-      tiv: 0,
-      lic: /yes/i.test(row[I.local] || "") ? 1 : 0,
-      status: (row[I.status] || "").trim(),
-    };
-    deals.set(key, d);
-  }
-  d.no += n;
-  d.tiv += Number.isFinite(tiv) ? tiv : 0;
-  d.dl.push([dy, n, Number.isFinite(tiv) ? +tiv.toFixed(3) : 0]);
 }
 if (unmappedRecip.size) {
   console.error("UNMAPPED RECIPIENTS (add to RECIPIENTS/ALIAS):");
   for (const [k, v] of [...unmappedRecip].sort((a, b) => b[1] - a[1])) console.error("   " + k + "  (" + v + " rows)");
   process.exit(1);
 }
+if (unmappedDesc.size) {
+  console.warn("descriptions folded to 'other' (verify):");
+  for (const [k, v] of unmappedDesc) console.warn("   " + k + " (" + v + ")");
+}
 
 const ROWS = [...deals.values()];
 for (const d of ROWS) {
-  d.dl.sort((a, b) => a[0] - b[0]);
+  /* merge multiple same-year transactions of one designation */
+  const byYear = new Map();
+  for (const [y, n, tiv] of d.dl) {
+    const e = byYear.get(y) || [y, 0, 0];
+    e[1] += n; e[2] = +(e[2] + tiv).toFixed(3);
+    byYear.set(y, e);
+  }
+  d.dl = [...byYear.values()].sort((a, b) => a[0] - b[0]);
   d.tiv = +d.tiv.toFixed(3);
-  const st = d.status.toLowerCase();
-  const bits = [];
-  if (st && st !== "new") bits.push(d.status);
-  if (d.oyEst) bits.push("order year is a SIPRI estimate");
-  d.fl = bits.length ? bits.join("; ") : undefined;
-  delete d.status; delete d.oyEst;
 }
+ROWS.sort((a, b) => a.dl[0][0] - b.dl[0][0] || a.r.localeCompare(b.r));
 
 /* used recipients only */
 const usedRec = new Set(ROWS.map(d => d.r));
@@ -312,8 +297,18 @@ for (const r of usedRec) RECIP_OUT[r] = RECIPIENTS[r];
 const years = ROWS.flatMap(d => d.dl.map(x => x[0]));
 const Y0 = Math.min(...years), Y1 = Math.max(...years) + 1;
 
-/* ---------------- cross-check vs TIV tables (2000-2025) ---------------- */
-console.log("Register: " + ROWS.length + " deals, " + years.length + " delivery-year rows, span " + Y0 + "–" + (Y1 - 1) + (skipped ? " (" + skipped + " undelivered rows skipped)" : ""));
+/* ---------------- stats + reconciliation vs SIPRI TIV tables ---------------- */
+const perYear = new Map(), perRec = new Map();
+let TOT = 0;
+for (const d of ROWS) for (const [y, , tiv] of d.dl) {
+  perYear.set(y, (perYear.get(y) || 0) + tiv);
+  perRec.set(d.r, (perRec.get(d.r) || 0) + tiv);
+  TOT += tiv;
+}
+const top = [...perRec].sort((a, b) => b[1] - a[1])[0];
+console.log("Register: " + ROWS.length + " (recipient × weapon) rows from " + txCount + " delivery transactions, span " + Y0 + "–" + (Y1 - 1));
+console.log("Total TIV " + Math.round(TOT) + "m to " + usedRec.size + " recipients; top: " + top[0] + " " + Math.round(top[1]) + " (" + (100 * top[1] / TOT).toFixed(1) + "%)");
+
 try {
   const tivRaw = rd("data/sipri_tiv_table_2000_2025.csv");
   const tl = tivRaw.split(/\r?\n/);
@@ -322,39 +317,50 @@ try {
   const thdr = tt[0];
   const yearsIdx = thdr.map((h, i) => [h, i]).filter(([h]) => /^\d{4}$/.test(h));
   const totalRow = tt.find(r => /^Total/i.test(r[0] || ""));
-  /* our per-year totals */
-  const ours = new Map();
-  for (const d of ROWS) for (const [y, , tiv] of d.dl) ours.set(y, (ours.get(y) || 0) + tiv);
-  console.log("\nCross-check vs SIPRI TIV tables (per-year totals, TIV m.):");
-  let worst = 0;
+  console.log("\nReconciliation vs SIPRI TIV tables (per-year totals, TIV m.):");
+  let worst = 0, flagged = 0;
   for (const [h, i] of yearsIdx) {
     const y = +h;
     const theirs = parseFloat(String(totalRow[i]).replace(/\s/g, "")) || 0;
-    const mine = ours.get(y) || 0;
+    const mine = perYear.get(y) || 0;
     const diff = mine - theirs;
     if (Math.abs(diff) > Math.abs(worst)) worst = diff;
-    const mark = Math.abs(diff) > Math.max(2, theirs * 0.02) ? "  <-- CHECK" : "";
-    console.log("  " + y + "  table=" + String(theirs).padStart(6) + "  register=" + String(Math.round(mine)).padStart(6) + "  diff=" + diff.toFixed(1).padStart(8) + mark);
+    const bad = Math.abs(diff) > Math.max(2, theirs * 0.02);
+    if (bad) { flagged++; console.log("  " + y + "  table=" + String(theirs).padStart(6) + "  register=" + String(Math.round(mine)).padStart(6) + "  diff=" + diff.toFixed(1).padStart(8) + "  <-- CHECK"); }
   }
-  console.log("  worst diff: " + worst.toFixed(1) + " TIV m.");
+  console.log("  " + (yearsIdx.length - flagged) + "/" + yearsIdx.length + " years within tolerance (±max(2, 2%)); worst diff " + worst.toFixed(1) + " TIV m.");
+  /* per-recipient totals 2000-2025 */
+  const mineRec = new Map();
+  for (const d of ROWS) for (const [y, , tiv] of d.dl) if (y >= 2000) mineRec.set(d.r, (mineRec.get(d.r) || 0) + tiv);
+  let recFlagged = 0;
+  for (const trow of tt.slice(1)) {
+    if (!trow[0] || /^Total/i.test(trow[0])) continue;
+    const rec = canon(trow[0].replace(/\*+$/, ""));
+    const theirs = parseFloat(String(trow[thdr.indexOf("2000-2025")]).replace(/\s/g, "")) || 0;
+    const mine = mineRec.get(rec) || 0;
+    if (Math.abs(mine - theirs) > Math.max(3, theirs * 0.03)) {
+      recFlagged++;
+      console.log("  recipient CHECK: " + trow[0] + "  table=" + theirs + "  register=" + Math.round(mine));
+    }
+  }
+  console.log("  recipient totals 2000–2025: " + recFlagged + " outside tolerance");
 } catch (e) {
-  console.warn("cross-check skipped:", e.message);
+  console.warn("reconciliation skipped:", e.message);
 }
 
 /* ---------------- captions ---------------- */
 const CAPTIONS = [
-  [1955, 1979, "<b>Fraternal arms.</b> Mao-era China arms its ideological allies — Albania after the Soviet split, North Korea, North Vietnam through the war years, and above all Pakistan after 1965, when Western embargoes push Islamabad toward Beijing."],
-  [1981, 1989, "<b>The Iran–Iraq war.</b> China sells to <b>both sides</b> — Type 59/69 tanks, fighters and Silkworm missiles flow to Baghdad and Tehran alike. The 1980s are China's first arms-export boom."],
+  [1955, 1979, "<b>Fraternal arms.</b> Mao-era China arms its allies — Vietnam through the war years, North Korea, Albania after the Soviet split, and Pakistan after 1965, when Western embargoes push Islamabad toward Beijing."],
+  [1981, 1989, "<b>The Iran–Iraq war.</b> China sells to <b>both sides</b> — Type-59/69 tanks, F-6/F-7 fighters and Silkworm anti-ship missiles flow to Baghdad and Tehran alike. The 1980s are China's first arms-export boom."],
   [1990, 1999, "<b>The quiet decade.</b> After Tiananmen and the Soviet collapse, cheap Russian surplus floods the market and Chinese exports slump — Pakistan, Myanmar and Iran keep the pipeline alive."],
-  [2007, 2013, "<b>The JF-17 era.</b> Co-developed with Pakistan and assembled in Kamra under licence, the JF-17 Thunder anchors a relationship that will absorb roughly half of all Chinese arms exports."],
-  [2014, 2020, "<b>Drones where the US won't sell.</b> CH-4 and Wing Loong armed UAVs go to Saudi Arabia, the UAE, Iraq, Egypt and Nigeria — customers Washington refused. China becomes the world's top exporter of armed drones."],
-  [2021, 2026, "<b>Submarines and frigates.</b> Type 054A/P frigates and Hangor-class submarines for Pakistan, S26T for Thailand — big-ticket naval deals now dominate, with Pakistan taking ~45% of everything China exports."],
+  [2007, 2013, "<b>The JF-17 era.</b> Co-developed with Pakistan and assembled at Kamra under licence, the JF-17 Thunder anchors a relationship that will absorb nearly half of all Chinese arms exports."],
+  [2014, 2020, "<b>Drones where the US won't sell.</b> CH-3/CH-4 and Wing Loong armed UAVs go to Saudi Arabia, the UAE, Iraq, Egypt and Nigeria — customers Washington refused. China becomes the leading exporter of armed drones."],
+  [2021, 2026, "<b>Submarines and frigates.</b> Type-054A/P frigates and Hangor-class submarines for Pakistan, an S26T submarine for Thailand — big-ticket naval deals now lead, and Pakistan has taken ~44% of everything China exported since 2000."],
 ];
 
 /* ---------------- substitute ---------------- */
 const tpl = rd("template.html");
-const today = new Date();
-const RETRIEVED = today.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+const RETRIEVED = "14 July 2026";
 const out = tpl
   .replace("%%LAND%%", rd("data/ne_land_110m.json").trim())
   .replace("%%COUNTRIES%%", rd("data/ne_countries_110m.json").trim())
