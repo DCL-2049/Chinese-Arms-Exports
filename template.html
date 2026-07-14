@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Made in China — Chinese arms exports, 1950–2025</title>
+<style>
+  :root {
+    --page:       #0d0d0d;
+    --surface:    #131313;
+    --panel:      #171716;
+    --ink:        #ffffff;
+    --ink-2:      #c3c2b7;
+    --ink-3:      #898781;
+    --hairline:   #2c2c2a;
+    --baseline:   #383835;
+    --border:     rgba(255,255,255,0.10);
+    --accent:     #d95926;   /* China -> world: orange family */
+    --ocean:      #0e1219;
+    --land:       #343440;
+    --land-edge:  #4d4d5c;
+    /* categorical slots (validated, fixed order) */
+    --c-aircraft: #3987e5;
+    --c-ships:    #199e70;
+    --c-missiles: #c98500;
+    --c-armour:   #008300;
+    --c-airdef:   #9085e9;
+    --c-sensors:  #e66767;
+    --c-other:    #d55181;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    background: var(--page); color: var(--ink-2);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+  #app { display:flex; flex-direction:column; height:100vh; }
+
+  /* ---------- header ---------- */
+  header { padding: 14px 20px 8px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1 { color:var(--ink); font-size:19px; font-weight:650; letter-spacing:.01em; }
+  header .sub { color:var(--ink-3); font-size:13px; }
+
+  /* ---------- controls row ---------- */
+  #controls { display:flex; align-items:center; gap:8px; padding: 4px 20px 10px; flex-wrap:wrap; }
+  .btn, .seg button {
+    background:var(--panel); color:var(--ink-2); border:1px solid var(--border);
+    border-radius:7px; padding:5px 12px; font:inherit; font-size:13px; cursor:pointer;
+  }
+  .btn:hover, .seg button:hover { color:var(--ink); border-color:rgba(255,255,255,.22); }
+  .btn[aria-pressed="true"] { color:var(--ink); background:#26261f; border-color:rgba(255,255,255,.28); }
+  .seg { display:inline-flex; border-radius:7px; overflow:hidden; }
+  .seg button { border-radius:0; border-right-width:0; }
+  .seg button:first-child { border-radius:7px 0 0 7px; }
+  .seg button:last-child { border-radius:0 7px 7px 0; border-right-width:1px; }
+  .seg button[aria-pressed="true"] { color:var(--ink); background:#26261f; }
+  .seg button .cdot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; position:relative; top:-0.5px; }
+  #legend { display:flex; gap:14px; margin-left:auto; align-items:center; font-size:13px; }
+  .lg { display:flex; align-items:center; gap:7px; }
+  #heat-legend { display:none; align-items:center; gap:7px; }
+
+  /* ---------- main ---------- */
+  #main { flex:1; display:flex; min-height:0; padding: 0 12px 0 12px; gap:12px; }
+  #globe-wrap { flex:1; position:relative; min-width:0; }
+  canvas#globe { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  canvas#globe.dragging { cursor:grabbing; }
+
+  #caption {
+    position:absolute; left:16px; bottom:14px; max-width:360px;
+    background:rgba(13,13,13,.82); border:1px solid var(--border); border-radius:9px;
+    padding:10px 13px; font-size:13px; color:var(--ink-2); backdrop-filter: blur(4px);
+    opacity:0; transition:opacity .35s; pointer-events:none;
+  }
+  #caption.show { opacity:1; }
+  #caption b { color:var(--ink); font-weight:600; }
+
+  #tooltip {
+    position:absolute; pointer-events:none; z-index:5; display:none;
+    background:rgba(19,19,19,.96); border:1px solid var(--border); border-radius:8px;
+    padding:8px 11px; font-size:12.5px; max-width:300px; box-shadow:0 4px 18px rgba(0,0,0,.5);
+  }
+  #tooltip .t-name { color:var(--ink); font-weight:600; font-size:13px; }
+  #tooltip .t-route { color:var(--ink-2); margin-top:2px; }
+  #tooltip .t-meta { color:var(--ink-3); margin-top:2px; }
+  #tooltip .t-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+
+  /* ---------- right panel ---------- */
+  #panel { width:312px; flex:none; display:flex; flex-direction:column; gap:10px; padding:6px 4px 6px 0; min-height:0; }
+  .tiles { display:flex; gap:10px; }
+  .tile { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px 12px 9px; }
+  .tile .v { font-size:22px; font-weight:650; color:var(--ink); line-height:1.15; }
+  .tile .v small { font-size:12px; font-weight:500; color:var(--ink-3); }
+  .tile .k { font-size:11px; color:var(--ink-3); margin-top:3px; }
+  .tile.hot .v { color:var(--accent); }
+  #feed { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px 0; overflow-y:auto; min-height:0; }
+  #feed h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); padding:2px 12px 6px; font-weight:600; }
+  .fe { padding:6px 12px; border-left:2px solid transparent; }
+  .fe.fresh { background:rgba(255,255,255,.035); border-left-color:var(--baseline); }
+  .fe .n { color:var(--ink); font-size:13px; font-weight:570; }
+  .fe .d { color:var(--ink-3); font-size:11.5px; margin-top:1px; }
+  .fe .chip { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; position:relative; top:-1px; }
+  #feed .empty { padding:10px 12px; color:var(--ink-3); font-size:12.5px; }
+
+  /* ---------- timeline ---------- */
+  #timeline { padding: 6px 20px 16px; }
+  #density { width:100%; height:44px; display:block; }
+  #scrub-row { display:flex; align-items:center; gap:14px; }
+  #play {
+    width:40px; height:40px; border-radius:50%; flex:none;
+    background:#26261f; color:var(--ink); border:1px solid rgba(255,255,255,.22);
+    font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  #play:hover { border-color:rgba(255,255,255,.4); }
+  #scrub { flex:1; -webkit-appearance:none; appearance:none; height:26px; background:transparent; cursor:pointer; }
+  #scrub::-webkit-slider-runnable-track { height:4px; border-radius:2px; background:var(--hairline); }
+  #scrub::-webkit-slider-thumb {
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--ink); margin-top:-6px; border:3px solid var(--page);
+    box-shadow:0 0 0 1px var(--baseline);
+  }
+  #scrub::-moz-range-track { height:4px; border-radius:2px; background:var(--hairline); }
+  #scrub::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:var(--ink); border:2px solid var(--page); }
+  #date-readout { font-variant-numeric: tabular-nums; color:var(--ink); font-size:15px; font-weight:600; width:64px; text-align:right; flex:none; }
+  #yearticks { display:flex; margin-top:2px; padding:0 78px 0 54px; }
+  #yearticks span { flex:1; font-size:11px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+
+  /* ---------- table view ---------- */
+  #tablewrap { display:none; flex:1; overflow:auto; margin:0 20px 10px; border:1px solid var(--border); border-radius:10px; }
+  body.tableview #tablewrap { display:block; }
+  body.tableview #main { display:none; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  thead th {
+    position:sticky; top:0; background:var(--panel); color:var(--ink-3); text-align:left;
+    font-size:11px; text-transform:uppercase; letter-spacing:.07em; font-weight:600;
+    padding:9px 12px; border-bottom:1px solid var(--baseline); z-index:1;
+  }
+  thead th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody td { padding:7px 12px; border-bottom:1px solid var(--hairline); vertical-align:top; }
+  tbody tr:hover { background:rgba(255,255,255,.03); }
+  td.dt { font-variant-numeric:tabular-nums; color:var(--ink-2); white-space:nowrap; }
+  td .chip { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; }
+  td.nm { color:var(--ink); font-weight:570; }
+  .flagged { color:var(--ink-3); font-size:11px; border:1px solid var(--baseline); border-radius:4px; padding:0 5px; margin-left:6px; }
+
+  footer { padding: 0 20px 10px; font-size:11.5px; color:var(--ink-3); }
+  footer a { color:var(--ink-3); }
+
+  @media (max-width: 900px) {
+    #panel { display:none; }
+    header .sub { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Made in China</h1>
+    <div class="sub">Chinese exports of major conventional weapons, 1950 – 2025 · every delivery, animated · Source: SIPRI Arms Transfers Database</div>
+  </header>
+
+  <div id="controls">
+    <div class="seg" role="group" aria-label="View">
+      <button data-view="globe" aria-pressed="true">Globe</button>
+      <button data-view="map" aria-pressed="false">Map</button>
+    </div>
+    <div class="seg" id="catseg" role="group" aria-label="Weapon category filter"></div>
+    <button id="trails" class="btn" aria-pressed="true">Trails</button>
+    <button id="heat" class="btn" aria-pressed="false" title="Color countries by cumulative TIV received from China">Heat map</button>
+    <div class="seg" role="group" aria-label="Playback speed">
+      <button data-speed="0.5" aria-pressed="false">½×</button>
+      <button data-speed="1" aria-pressed="true">1×</button>
+      <button data-speed="2" aria-pressed="false">2×</button>
+    </div>
+    <button id="tablebtn" class="btn" aria-pressed="false">Table view</button>
+    <div id="legend" aria-hidden="true">
+      <div id="heat-legend">
+        <span id="heat-bar" style="width:64px;height:8px;border-radius:4px"></span>
+        <span id="heat-label"></span>
+      </div>
+      <div class="lg" id="width-legend"><span style="border-top:1px solid var(--ink-3);width:12px"></span><span style="border-top:3.5px solid var(--ink-3);width:12px"></span>arc width ∝ √TIV</div>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="globe-wrap">
+      <canvas id="globe"></canvas>
+      <div id="caption"></div>
+      <div id="tooltip"></div>
+    </div>
+    <aside id="panel">
+      <div class="tiles">
+        <div class="tile hot"><div class="v" id="stat-tiv">0</div><div class="k">TIV delivered (SIPRI trend-indicator value, m.)</div></div>
+      </div>
+      <div class="tiles">
+        <div class="tile"><div class="v" id="stat-rec">0</div><div class="k">recipient states &amp; forces</div></div>
+        <div class="tile"><div class="v" id="stat-top">–</div><div class="k" id="stat-top-k">share to top recipient</div></div>
+      </div>
+      <div id="feed"><h2>Latest deliveries</h2><div id="feed-items"></div></div>
+    </aside>
+  </div>
+
+  <div id="tablewrap">
+    <table id="datatable">
+      <thead><tr>
+        <th>Ordered</th><th>Recipient</th><th>Category</th><th>Weapon</th><th class="num">№ ordered</th><th>Delivered</th><th class="num">№ delivered</th><th class="num">TIV (m.)</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div id="timeline">
+    <canvas id="density"></canvas>
+    <div id="scrub-row">
+      <button id="play" aria-label="Play timeline">▶</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Timeline scrubber">
+      <div id="date-readout">1950</div>
+    </div>
+    <div id="yearticks"></div>
+  </div>
+
+  <footer>
+    Globe: drag to rotate, scroll to zoom · hover an arc head or country for details · width and glow scale with √TIV.
+    <b>TIV is not dollars</b> — it is SIPRI's trend-indicator value for military resource transfer. Major conventional weapons only (no small arms).
+    Source: <a href="https://www.sipri.org/databases/armstransfers" target="_blank" rel="noopener">SIPRI Arms Transfers Database</a>, retrieved %%RETRIEVED%% · see <a href="#" id="tablelink">table view</a> for the full register.
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ================= data ================= */
+const LAND = %%LAND%%;
+const COUNTRIES = %%COUNTRIES%%;
+/* register rows: r recipient, c category key, d designation, dd description, oy order year,
+   no number ordered, dl [[deliveryYear, numberDelivered, tivShare], ...], tiv row total,
+   lic 1 = licensed production, fl = data flag/comment */
+const ROWS = %%ROWS%%;
+/* recipient meta: lat/lon of capital, ne = Natural Earth polygon name (null = heat dot only), fl = non-state flag */
+const RECIP = %%RECIPIENTS%%;
+
+const Y0 = %%Y0%%, Y1 = %%Y1%%;          /* timeline span, years (Y1 exclusive edge) */
+const CSS = getComputedStyle(document.documentElement);
+const C = (n) => CSS.getPropertyValue(n).trim();
+
+const CATS = [
+  ["aircraft",  "Aircraft",    "--c-aircraft"],
+  ["ships",     "Ships",       "--c-ships"],
+  ["missiles",  "Missiles",    "--c-missiles"],
+  ["armour",    "Armour",      "--c-armour"],
+  ["airdef",    "Air defence", "--c-airdef"],
+  ["sensors",   "Sensors",     "--c-sensors"],
+  ["other",     "Other",       "--c-other"],
+];
+const CATCOL = Object.fromEntries(CATS.map(([k,,v]) => [k, C(v)]));
+const CATLABEL = Object.fromEntries(CATS.map(([k,l]) => [k, l]));
+
+/* ---- flatten register rows into per-(recipient, year, category) delivery events ---- */
+const EVMAP = new Map();
+for (const row of ROWS) {
+  for (const [y, n, tiv] of row.dl) {
+    const key = row.r + "|" + y + "|" + row.c;
+    let ev = EVMAP.get(key);
+    if (!ev) { ev = { rec: row.r, y, cat: row.c, tiv: 0, items: [] }; EVMAP.set(key, ev); }
+    ev.tiv += tiv;
+    ev.items.push({ n, d: row.d, dd: row.dd, lic: row.lic });
+  }
+}
+const EVENTS = [...EVMAP.values()].filter(e => RECIP[e.rec]);
+/* deterministic stagger inside the year so arcs don't all fire on Jan 1 */
+const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h*31 + s.charCodeAt(i)) >>> 0; return h; };
+for (const e of EVENTS) e.t = e.y + 0.06 + 0.55 * ((hash(e.rec + e.cat) % 997) / 997);
+EVENTS.sort((a,b) => a.t - b.t);
+
+/* per-year totals (all categories + per category) for density strip and stats */
+const YEARS = [];
+for (let y = Y0; y < Y1; y++) YEARS.push(y);
+const yearTot = new Map();   /* y -> {tot, byCat:{}} */
+for (const y of YEARS) yearTot.set(y, { tot: 0, byCat: Object.fromEntries(CATS.map(([k]) => [k, 0])) });
+for (const e of EVENTS) {
+  const s = yearTot.get(e.y); if (!s) continue;
+  s.tot += e.tiv; s.byCat[e.cat] += e.tiv;
+}
+
+/* ================= projection ================= */
+const D2R = Math.PI/180;
+let viewMode = "globe";
+const MAP_CLON = 150;
+const wrapLon = (d) => ((d + 180) % 360 + 360) % 360 - 180;
+function mapScale() { return Math.min(W/385, H/205); }
+function mapXY(lon, lat) {
+  const s = mapScale();
+  return [CX + wrapLon(lon - MAP_CLON)*s, CY - lat*s];
+}
+let lam0 = 80*D2R, phi0 = 24*D2R;
+let zoom = 1;
+function unit(lon, lat) {
+  const l = lon*D2R, p = lat*D2R, cp = Math.cos(p);
+  return [cp*Math.sin(l), Math.sin(p), cp*Math.cos(l)];
+}
+const BEIJING = { lon: 116.4, lat: 39.9 };
+const BEIJING_V = unit(BEIJING.lon, BEIJING.lat);
+let sinP=0, cosP=1, sinL=0, cosL=1;
+function setRot() { sinP=Math.sin(phi0); cosP=Math.cos(phi0); sinL=Math.sin(lam0); cosL=Math.cos(lam0); }
+function view(v) {
+  const x1 =  v[0]*cosL - v[2]*sinL;
+  const z1 =  v[0]*sinL + v[2]*cosL;
+  const y1 =  v[1]*cosP - z1*sinP;
+  const z2 =  v[1]*sinP + z1*cosP;
+  return [x1, y1, z2];
+}
+
+/* ================= canvas ================= */
+const cv = document.getElementById("globe");
+const ctx = cv.getContext("2d");
+let W=0, H=0, DPR=1, CX=0, CY=0, R=1;
+function resize() {
+  const r = cv.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.max(50, r.width); H = Math.max(50, r.height);
+  cv.width = W*DPR; cv.height = H*DPR;
+  CX = W/2; CY = H/2;
+  R = Math.min(W,H)/2 - 24;
+}
+window.addEventListener("resize", () => { resize(); drawDensity(); });
+
+function toScreen(p, rad) {
+  const X = CX + R*zoom*rad*p[0], Y = CY - R*zoom*rad*p[1];
+  const rr = rad*Math.hypot(p[0],p[1]);
+  const vis = p[2] >= 0 || rr > 1;
+  return [X, Y, vis];
+}
+
+/* ================= land rendering ================= */
+const LANDV = LAND.map(f => f.map(ring => ring.map(([lon,lat]) => unit(lon,lat))));
+const unwrapRing = (ring) => {
+  let prev = wrapLon(ring[0][0] - MAP_CLON);
+  return ring.map(([lon, lat], i) => {
+    let w = wrapLon(lon - MAP_CLON);
+    if (i > 0) { while (w - prev > 180) w -= 360; while (w - prev < -180) w += 360; }
+    prev = w;
+    return [w, lat];
+  });
+};
+const LANDM = LAND.map(f => f.map(unwrapRing));
+const CNT = COUNTRIES.map(([name, rings]) => ({
+  name,
+  v: rings.map(r => r.map(([lon, lat]) => unit(lon, lat))),
+  m: rings.map(unwrapRing),
+}));
+const NE_NAMES = new Set(CNT.map(c => c.name));
+
+/* ================= heat layer (cumulative TIV received) ================= */
+/* validated ordinal ramp on #0d0d0d (light→dark reversed at draw: low TIV = darkest) */
+const HEAT_RAMP = ["#8f3d15", "#b34a1e", "#d95926", "#e8895a", "#f4b993"];
+let heatOn = false;
+function rampColor(v, max) {
+  const t = Math.sqrt(v / max) * (HEAT_RAMP.length - 1);
+  const i = Math.min(HEAT_RAMP.length - 2, Math.floor(t)), f = t - i;
+  const a = HEAT_RAMP[i], b = HEAT_RAMP[i + 1];
+  const ch = (h, k) => parseInt(h.slice(1 + k * 2, 3 + k * 2), 16);
+  const mix = (k) => Math.round(ch(a, k) + (ch(b, k) - ch(a, k)) * f);
+  return `rgb(${mix(0)},${mix(1)},${mix(2)})`;
+}
+/* NE polygon name -> recipient meta (for choropleth + hover) */
+const NE_TO_REC = {};
+for (const [rec, m] of Object.entries(RECIP)) if (m.ne) NE_TO_REC[m.ne] = rec;
+
+let heatCacheKey = null, heatSums = null;
+function heatAt(t) {
+  const key = Math.floor(t * 12) + "|" + catFilter;
+  if (heatCacheKey === key) return heatSums;
+  heatCacheKey = key;
+  heatSums = new Map();
+  for (const e of EVENTS) {
+    if (e.t > t) break;
+    if (!catVisible(e)) continue;
+    heatSums.set(e.rec, (heatSums.get(e.rec) || 0) + e.tiv);
+  }
+  return heatSums;
+}
+/* fixed scale over the whole era & all categories, so color keeps meaning while playing */
+const HEAT_MAX = (() => {
+  const m = new Map();
+  for (const e of EVENTS) m.set(e.rec, (m.get(e.rec) || 0) + e.tiv);
+  return Math.max(...m.values());
+})();
+
+function drawLand() {
+  ctx.fillStyle = C("--land");
+  ctx.strokeStyle = C("--land-edge");
+  ctx.lineWidth = 0.6;
+  for (const feat of LANDV) {
+    let anyVisible = false;
+    ctx.beginPath();
+    for (const ring of feat) {
+      let started = false;
+      for (let i=0; i<ring.length; i++) {
+        let [x,y,z] = view(ring[i]);
+        if (z >= 0) anyVisible = true;
+        else { const n = Math.hypot(x,y) || 1; x/=n; y/=n; }
+        const sx = CX + R*zoom*x, sy = CY - R*zoom*y;
+        if (!started) { ctx.moveTo(sx, sy); started = true; }
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.closePath();
+    }
+    if (anyVisible) { ctx.fill("evenodd"); ctx.stroke(); }
+  }
+}
+
+function drawSphere() {
+  const g = ctx.createRadialGradient(CX, CY, R*zoom*0.94, CX, CY, R*zoom*1.06);
+  g.addColorStop(0, "rgba(200,120,60,0.10)");
+  g.addColorStop(1, "rgba(200,120,60,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(CX, CY, R*zoom*1.06, 0, 7); ctx.fill();
+
+  ctx.beginPath(); ctx.arc(CX, CY, R*zoom, 0, 7);
+  ctx.fillStyle = C("--ocean"); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.10)"; ctx.lineWidth = 1; ctx.stroke();
+}
+
+function drawShading() {
+  const g = ctx.createRadialGradient(CX - R*zoom*0.42, CY - R*zoom*0.48, R*zoom*0.1, CX, CY, R*zoom*1.02);
+  g.addColorStop(0, "rgba(200,170,140,0.08)");
+  g.addColorStop(0.55, "rgba(160,130,110,0.02)");
+  g.addColorStop(1, "rgba(0,0,0,0.38)");
+  ctx.beginPath(); ctx.arc(CX, CY, R*zoom, 0, 7);
+  ctx.fillStyle = g; ctx.fill();
+}
+
+function countryHeat(neName, sums) {
+  const rec = NE_TO_REC[neName];
+  return rec ? (sums.get(rec) || 0) : 0;
+}
+
+function drawCountriesGlobe(sums) {
+  ctx.strokeStyle = C("--land-edge");
+  ctx.lineWidth = 0.6;
+  for (const c of CNT) {
+    let anyVisible = false;
+    ctx.beginPath();
+    for (const ring of c.v) {
+      let started = false;
+      for (let i = 0; i < ring.length; i++) {
+        let [x, y, z] = view(ring[i]);
+        if (z >= 0) anyVisible = true;
+        else { const n = Math.hypot(x, y) || 1; x /= n; y /= n; }
+        const sx = CX + R*zoom*x, sy = CY - R*zoom*y;
+        started ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); started = true;
+      }
+      ctx.closePath();
+    }
+    if (anyVisible) {
+      const v = countryHeat(c.name, sums);
+      ctx.fillStyle = v ? rampColor(v, HEAT_MAX) : C("--land");
+      ctx.fill("evenodd"); ctx.stroke();
+    }
+  }
+}
+
+/* recipients without an NE polygon -> heat dot at capital */
+let heatDotTargets = [];
+function drawHeatDots(sums) {
+  for (const [rec, m] of Object.entries(RECIP)) {
+    if (m.ne) continue;
+    const v = sums.get(rec) || 0;
+    if (!v) continue;
+    let x, y, vis;
+    if (viewMode === "map") { const p = mapXY(m.lon, m.lat); x = p[0]; y = p[1]; vis = true; }
+    else { const s = toScreen(view(unit(m.lon, m.lat)), 1); x = s[0]; y = s[1]; vis = s[2]; }
+    if (!vis) continue;
+    ctx.fillStyle = rampColor(v, HEAT_MAX);
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.arc(x, y, 2.5 + Math.sqrt(Math.sqrt(v)), 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+    heatDotTargets.push({ x, y, rec, v });
+  }
+}
+
+/* ================= flat map rendering ================= */
+let mapCountryPaths = [];
+function drawMapBase() {
+  const s = mapScale();
+  const x0 = CX - 180*s, y0 = CY - 90*s, w = 360*s, h = 180*s;
+  ctx.save();
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, 10); else ctx.rect(x0, y0, w, h);
+  ctx.fillStyle = C("--ocean"); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.10)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.clip();
+  ctx.strokeStyle = "rgba(255,255,255,0.045)";
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  for (let w2 = -180; w2 <= 180; w2 += 30) { ctx.moveTo(CX + w2*s, y0); ctx.lineTo(CX + w2*s, y0 + h); }
+  for (let lat = -60; lat <= 60; lat += 30) { ctx.moveTo(x0, CY - lat*s); ctx.lineTo(x0 + w, CY - lat*s); }
+  ctx.stroke();
+  ctx.strokeStyle = C("--land-edge");
+  ctx.lineWidth = 0.6;
+  if (heatOn) {
+    const sums = heatAt(T);
+    mapCountryPaths = [];
+    for (const c of CNT) {
+      const path = new Path2D();
+      for (const ring of c.m) {
+        for (let i = 0; i < ring.length; i++) {
+          const sx = CX + ring[i][0]*s, sy = CY - ring[i][1]*s;
+          i ? path.lineTo(sx, sy) : path.moveTo(sx, sy);
+        }
+        path.closePath();
+      }
+      const v = countryHeat(c.name, sums);
+      ctx.fillStyle = v ? rampColor(v, HEAT_MAX) : C("--land");
+      ctx.fill(path, "evenodd"); ctx.stroke(path);
+      mapCountryPaths.push({ path, name: c.name, v });
+    }
+  } else {
+    ctx.fillStyle = C("--land");
+    for (const feat of LANDM) {
+      ctx.beginPath();
+      for (const ring of feat) {
+        for (let i = 0; i < ring.length; i++) {
+          const sx = CX + ring[i][0]*s, sy = CY - ring[i][1]*s;
+          i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+        }
+        ctx.closePath();
+      }
+      ctx.fill("evenodd"); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+function mapArcPoint(A, B, Cp, t) {
+  const u = 1 - t;
+  return [u*u*A[0] + 2*u*t*Cp[0] + t*t*B[0], u*u*A[1] + 2*u*t*Cp[1] + t*t*B[1]];
+}
+function mapArcCtrl(A, B) {
+  const dx = B[0]-A[0], dy = B[1]-A[1];
+  const dist = Math.hypot(dx, dy);
+  const lift = Math.min(70, Math.max(10, dist*0.18));
+  return [(A[0]+B[0])/2, (A[1]+B[1])/2 - lift];
+}
+
+function drawGraticule() {
+  ctx.strokeStyle = "rgba(255,255,255,0.045)";
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  for (let lon=-180; lon<180; lon+=30) {
+    let pen = false;
+    for (let lat=-88; lat<=88; lat+=3) {
+      const [x,y,z] = view(unit(lon,lat));
+      if (z < 0) { pen = false; continue; }
+      const sx = CX+R*zoom*x, sy = CY-R*zoom*y;
+      pen ? ctx.lineTo(sx,sy) : ctx.moveTo(sx,sy); pen = true;
+    }
+  }
+  for (let lat=-60; lat<=60; lat+=30) {
+    let pen = false;
+    for (let lon=-180; lon<=180; lon+=3) {
+      const [x,y,z] = view(unit(lon,lat));
+      if (z < 0) { pen = false; continue; }
+      const sx = CX+R*zoom*x, sy = CY-R*zoom*y;
+      pen ? ctx.lineTo(sx,sy) : ctx.moveTo(sx,sy); pen = true;
+    }
+  }
+  ctx.stroke();
+}
+
+/* ================= arcs ================= */
+for (const e of EVENTS) {
+  const m = RECIP[e.rec];
+  e.va = BEIJING_V;
+  e.vb = unit(m.lon, m.lat);
+  e.to = { lon: m.lon, lat: m.lat };
+  const d = e.va[0]*e.vb[0] + e.va[1]*e.vb[1] + e.va[2]*e.vb[2];
+  e.om = Math.acos(Math.min(1, Math.max(-1, d)));
+  e.alt = 0.06 + 0.22*(e.om/Math.PI);
+  e.col = CATCOL[e.cat];
+  /* weighted width: sqrt scaling, capped — TIV spans 4 orders of magnitude */
+  e.w = Math.min(7, 0.7 + 0.16*Math.sqrt(e.tiv));
+}
+function slerp(e, t) {
+  const so = Math.sin(e.om) || 1e-9;
+  const A = Math.sin((1-t)*e.om)/so, B = Math.sin(t*e.om)/so;
+  return [ A*e.va[0]+B*e.vb[0], A*e.va[1]+B*e.vb[1], A*e.va[2]+B*e.vb[2] ];
+}
+const DRAW_YRS = 0.30;   /* arc takes ~4 timeline-months to draw */
+const FADE_YRS = 1.15;   /* then fades to trail */
+
+function drawArc(e, prog, alpha, lw, withHead) {
+  if (viewMode === "map") return drawArcMap(e, prog, alpha, lw, withHead);
+  const N = 44;
+  const n = Math.max(2, Math.round(N*prog));
+  ctx.strokeStyle = e.col;
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = lw;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  let pen = false, head = null;
+  for (let i=0; i<=n; i++) {
+    const t = prog*i/n;
+    const p = slerp(e, t);
+    const rad = 1 + e.alt*Math.sin(Math.PI*t);
+    const vp = view(p);
+    vp[0]*=rad; vp[1]*=rad; vp[2]*=rad;
+    const occluded = vp[2] < 0 && Math.hypot(vp[0],vp[1]) < 1;
+    if (occluded) { pen = false; continue; }
+    const sx = CX + R*zoom*vp[0], sy = CY - R*zoom*vp[1];
+    pen ? ctx.lineTo(sx,sy) : ctx.moveTo(sx,sy); pen = true;
+    if (i===n) head = [sx,sy];
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  return withHead ? head : null;
+}
+
+function drawArcMap(e, prog, alpha, lw, withHead) {
+  const A = mapXY(BEIJING.lon, BEIJING.lat), B = mapXY(e.to.lon, e.to.lat);
+  const Cp = mapArcCtrl(A, B);
+  const N = 32, n = Math.max(2, Math.round(N*prog));
+  ctx.strokeStyle = e.col;
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = lw;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  let head = null;
+  for (let i = 0; i <= n; i++) {
+    const p = mapArcPoint(A, B, Cp, prog*i/n);
+    i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+    if (i === n) head = p;
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  return withHead ? head : null;
+}
+function destXY(e) {
+  if (viewMode === "map") { const p = mapXY(e.to.lon, e.to.lat); return [p[0], p[1], true]; }
+  return toScreen(view(e.vb), 1);
+}
+
+function dot(x, y, r, col, alpha, glow) {
+  ctx.globalAlpha = alpha;
+  if (glow) {
+    const g = ctx.createRadialGradient(x,y,0, x,y, r*3.2);
+    g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x,y,r*3.2,0,7); ctx.fill();
+  }
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+  ctx.strokeStyle = C("--page"); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+/* ================= timeline state ================= */
+let T = Y0;
+let playing = false;
+let catFilter = "all";
+let trailsOn = true;
+const BASE_SPEED = 1.0;   /* timeline-years per real second at 1x (~76s full run) */
+let speedMul = 1;
+const scrub = document.getElementById("scrub");
+const readout = document.getElementById("date-readout");
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const yearOf = (t) => Math.min(Y1 - 1, Math.floor(t));
+function fmt(t) { return String(yearOf(t)); }
+
+function catVisible(e) { return catFilter === "all" || e.cat === catFilter; }
+
+/* ================= hover ================= */
+let hoverTargets = [];
+const tip = document.getElementById("tooltip");
+let mouse = null, hoverEv = null;
+
+/* ================= render loop ================= */
+let lastFrame = 0;
+function frame(ts) {
+  requestAnimationFrame(frame);
+  const dt = lastFrame ? (ts-lastFrame)/1000 : 0;
+  lastFrame = ts;
+  if (playing) {
+    T += BASE_SPEED*speedMul*dt;
+    if (T >= Y1) { T = Y1; setPlaying(false); }
+    syncScrub();
+  }
+  render();
+}
+function render() {
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  heatDotTargets = [];
+  if (viewMode === "map") {
+    drawMapBase();
+    if (heatOn) drawHeatDots(heatAt(T));
+  } else {
+    setRot();
+    drawSphere();
+    drawGraticule();
+    if (heatOn) drawCountriesGlobe(heatAt(T)); else drawLand();
+    drawShading();
+    if (heatOn) drawHeatDots(heatAt(T));
+  }
+
+  /* persistent Beijing origin marker */
+  const bj = viewMode === "map"
+    ? [...mapXY(BEIJING.lon, BEIJING.lat), true]
+    : toScreen(view(BEIJING_V), 1.0);
+  if (bj[2]) {
+    ctx.fillStyle = "#f0e0b0";
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.arc(bj[0], bj[1], 2.6, 0, 7); ctx.fill();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = "#f0e0b0"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(bj[0], bj[1], 5.5, 0, 7); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (zoom > 0.8) {
+      ctx.fillStyle = C("--ink-2");
+      ctx.font = "11px system-ui, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("China", bj[0]+8, bj[1]-6);
+    }
+  }
+
+  hoverTargets = [];
+  const active = [];
+  for (const e of EVENTS) {
+    if (e.t > T) continue;
+    if (!catVisible(e)) continue;
+    const age = T - e.t;
+    if (age <= DRAW_YRS + FADE_YRS) active.push(e);
+    else if (trailsOn) {
+      drawArc(e, 1, 0.16 + 0.10*Math.min(1, e.w/4), Math.max(0.8, e.w*0.45));
+      const s = destXY(e);
+      if (s[2]) { dot(s[0], s[1], 2.2, e.col, 0.7); hoverTargets.push({x:s[0], y:s[1], e}); }
+    }
+  }
+  for (const e of active) {
+    const age = T - e.t;
+    const prog = Math.min(1, age/DRAW_YRS);
+    const fade = age <= DRAW_YRS ? 1 : Math.max(0.13, 1 - 0.87*(age-DRAW_YRS)/FADE_YRS);
+    const head = drawArc(e, prog, 0.30 + 0.6*fade, Math.max(1.0, e.w*(0.5+0.5*fade)), true);
+    if (head) {
+      dot(head[0], head[1], 2.6 + e.w*0.35, e.col, Math.min(1, 0.35+fade), prog < 1 || fade > 0.5);
+      hoverTargets.push({x:head[0], y:head[1], e});
+    }
+    if (prog >= 1 && age < DRAW_YRS + 0.45) {
+      const k = (age-DRAW_YRS)/0.45;
+      const s = destXY(e);
+      if (s[2]) {
+        ctx.globalAlpha = (1-k)*0.6;
+        ctx.strokeStyle = e.col; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(s[0], s[1], 4 + k*(10 + e.w*2), 0, 7); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  updateHover();
+  updateHud();
+}
+
+/* ================= HUD (stats, feed, caption) ================= */
+const statTiv = document.getElementById("stat-tiv");
+const statRec = document.getElementById("stat-rec");
+const statTop = document.getElementById("stat-top");
+const statTopK = document.getElementById("stat-top-k");
+const feedEl = document.getElementById("feed-items");
+const capEl = document.getElementById("caption");
+const fmtTiv = (v) => v >= 10000 ? (v/1000).toFixed(1) + "k" : Math.round(v).toLocaleString("en-US");
+const itemLine = (it) => (it.n ? it.n + " × " : "") + it.d + " " + it.dd.toLowerCase() + (it.lic ? " (licensed prod.)" : "");
+
+/* captions at key moments (year ranges) */
+const CAPTIONS = %%CAPTIONS%%;
+
+let lastHudKey = "";
+function updateHud() {
+  readout.textContent = fmt(T);
+  const key = Math.floor(T*10) + "|" + catFilter;
+  if (key === lastHudKey) return;
+  lastHudKey = key;
+  let tot = 0;
+  const per = new Map();
+  const recent = [];
+  for (const e of EVENTS) {
+    if (e.t > T) break;
+    if (!catVisible(e)) continue;
+    tot += e.tiv;
+    per.set(e.rec, (per.get(e.rec) || 0) + e.tiv);
+    recent.push(e);
+  }
+  let topRec = null, topV = 0;
+  for (const [r, v] of per) if (v > topV) { topV = v; topRec = r; }
+  statTiv.textContent = fmtTiv(tot);
+  statRec.textContent = per.size;
+  statTop.textContent = topRec ? Math.round(100*topV/tot) + "%" + " " : "–";
+  statTopK.textContent = topRec ? "share to top recipient · " + topRec : "share to top recipient";
+
+  const items = recent.slice(-8).reverse();
+  feedEl.innerHTML = items.length ? items.map(e => {
+    const fresh = (T - e.t) < 0.6;
+    const what = e.items.slice(0, 2).map(itemLine).join("; ") + (e.items.length > 2 ? " +" + (e.items.length-2) + " more" : "");
+    return '<div class="fe' + (fresh ? " fresh" : "") + '">' +
+      '<div class="n"><span class="chip" style="background:' + e.col + '"></span>' + e.rec + ' · ' + e.y + '</div>' +
+      '<div class="d">' + what + ' · TIV ' + e.tiv.toFixed(1) + 'm</div></div>';
+  }).join("") : '<div class="empty">No deliveries yet — drag the timeline or press play.</div>';
+
+  /* caption */
+  let cap = null;
+  for (const [a, b, html] of CAPTIONS) if (T >= a && T < b) { cap = html; break; }
+  if (cap) { capEl.innerHTML = cap; capEl.classList.add("show"); }
+  else capEl.classList.remove("show");
+}
+
+/* ================= density strip: TIV bar chart per year ================= */
+const dcv = document.getElementById("density");
+const dctx = dcv.getContext("2d");
+const DENS_X0 = 54, DENS_XR = 78 + 14;  /* align with slider: play(40)+gap(14) left; readout(64)+gap(14) right */
+function drawDensity() {
+  const r = dcv.getBoundingClientRect();
+  dcv.width = r.width*DPR; dcv.height = r.height*DPR;
+  dctx.setTransform(DPR,0,0,DPR,0,0);
+  const w = r.width, h = r.height;
+  dctx.clearRect(0,0,w,h);
+  const max = Math.max(1, ...YEARS.map(y => catFilter === "all" ? yearTot.get(y).tot : yearTot.get(y).byCat[catFilter]));
+  const x0 = DENS_X0, x1 = w - DENS_XR;
+  const bw = (x1-x0)/YEARS.length;
+  for (let i=0; i<YEARS.length; i++) {
+    const s = yearTot.get(YEARS[i]);
+    let base = h - 2;
+    if (catFilter === "all") {
+      for (const [k] of CATS) {
+        const v = s.byCat[k];
+        if (!v) continue;
+        const hh = v/max * (h-14);
+        dctx.fillStyle = CATCOL[k];
+        dctx.globalAlpha = 0.9;
+        dctx.fillRect(x0 + i*bw, base-hh, Math.max(1.5, bw-1.5), hh);
+        base -= hh;
+      }
+    } else {
+      const v = s.byCat[catFilter];
+      if (v) {
+        const hh = v/max * (h-14);
+        dctx.fillStyle = CATCOL[catFilter];
+        dctx.globalAlpha = 0.9;
+        dctx.fillRect(x0 + i*bw, base-hh, Math.max(1.5, bw-1.5), hh);
+      }
+    }
+    dctx.globalAlpha = 1;
+  }
+  /* axis hint: max-year label */
+  dctx.fillStyle = C("--ink-3");
+  dctx.font = "10px system-ui, sans-serif";
+  dctx.textAlign = "left";
+  dctx.fillText("TIV delivered per year (m.)", x0, 9);
+}
+
+/* year tick labels under slider */
+(function yearTicks(){
+  const el = document.getElementById("yearticks");
+  let html = "";
+  for (let y = Y0; y < Y1; y++) {
+    html += '<span>' + (y % 10 === 0 ? y : "") + "</span>";
+  }
+  el.innerHTML = html;
+})();
+
+/* ================= controls wiring ================= */
+const playBtn = document.getElementById("play");
+function setPlaying(p) {
+  playing = p;
+  playBtn.textContent = p ? "❚❚" : "▶";
+  playBtn.setAttribute("aria-label", p ? "Pause timeline" : "Play timeline");
+}
+playBtn.addEventListener("click", () => {
+  if (!playing && T >= Y1 - 0.01) T = Y0;
+  setPlaying(!playing);
+});
+function syncScrub() { scrub.value = Math.round(1000*(T-Y0)/(Y1-Y0)); }
+scrub.addEventListener("input", () => {
+  T = Y0 + (Y1-Y0)*scrub.value/1000;
+  setPlaying(false);
+});
+
+/* category filter segment */
+(function buildCatSeg(){
+  const seg = document.getElementById("catseg");
+  const mk = (k, label, col) =>
+    '<button data-cat="' + k + '" aria-pressed="' + (k === "all") + '">' +
+    (col ? '<span class="cdot" style="background:' + col + '"></span>' : "") + label + "</button>";
+  seg.innerHTML = mk("all", "All", null) + CATS.map(([k, l]) => mk(k, l, CATCOL[k])).join("");
+  seg.querySelectorAll("button").forEach(b => {
+    b.addEventListener("click", () => {
+      catFilter = b.dataset.cat;
+      seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x===b)));
+      drawDensity();
+      updateHeatLegend();
+    });
+  });
+})();
+
+document.querySelectorAll(".seg button[data-view]").forEach(b => {
+  b.addEventListener("click", () => {
+    viewMode = b.dataset.view;
+    cv.style.cursor = viewMode === "map" ? "default" : "grab";
+    document.querySelectorAll(".seg button[data-view]").forEach(x => x.setAttribute("aria-pressed", String(x===b)));
+  });
+});
+document.querySelectorAll(".seg button[data-speed]").forEach(b => {
+  b.addEventListener("click", () => {
+    speedMul = +b.dataset.speed;
+    document.querySelectorAll(".seg button[data-speed]").forEach(x => x.setAttribute("aria-pressed", String(x===b)));
+  });
+});
+const trailsBtn = document.getElementById("trails");
+trailsBtn.addEventListener("click", () => {
+  trailsOn = !trailsOn;
+  trailsBtn.setAttribute("aria-pressed", String(trailsOn));
+});
+const heatBtn = document.getElementById("heat");
+function updateHeatLegend() {
+  document.getElementById("heat-legend").style.display = heatOn ? "flex" : "none";
+  if (!heatOn) return;
+  document.getElementById("heat-bar").style.background =
+    "linear-gradient(90deg," + HEAT_RAMP.join(",") + ")";
+  document.getElementById("heat-label").textContent = "0 – " + fmtTiv(HEAT_MAX) + " TIV m. received (√ scale)";
+}
+heatBtn.addEventListener("click", () => {
+  heatOn = !heatOn;
+  heatBtn.setAttribute("aria-pressed", String(heatOn));
+  updateHeatLegend();
+  if (heatOn && trailsOn) { trailsOn = false; trailsBtn.setAttribute("aria-pressed", "false"); }
+});
+const tableBtn = document.getElementById("tablebtn");
+function setTable(on) {
+  document.body.classList.toggle("tableview", on);
+  tableBtn.setAttribute("aria-pressed", String(on));
+  if (on) setPlaying(false);
+}
+tableBtn.addEventListener("click", () => setTable(!document.body.classList.contains("tableview")));
+document.getElementById("tablelink").addEventListener("click", (ev) => { ev.preventDefault(); setTable(true); });
+
+/* build table once: the full register */
+(function buildTable(){
+  const tb = document.querySelector("#datatable tbody");
+  const rows = [...ROWS].sort((a,b) => (a.oy - b.oy) || a.r.localeCompare(b.r));
+  tb.innerHTML = rows.map(row => {
+    const cat = '<span class="chip" style="background:' + CATCOL[row.c] + '"></span>' + CATLABEL[row.c];
+    const delY = row.dl.length ? (row.dl[0][0] === row.dl[row.dl.length-1][0] ? String(row.dl[0][0]) : row.dl[0][0] + "–" + row.dl[row.dl.length-1][0]) : "–";
+    const nDel = row.dl.reduce((s, d) => s + (d[1] || 0), 0);
+    const flag = row.fl ? ' <span class="flagged" title="' + row.fl.replace(/"/g, "&quot;") + '">?</span>' : "";
+    const lic = row.lic ? ' <span class="flagged" title="Licensed production in recipient country">lic</span>' : "";
+    return "<tr><td class='dt'>" + (row.oy || "–") + "</td><td class='nm'>" + row.r + flag +
+      "</td><td>" + cat + "</td><td>" + row.d + " — " + row.dd + lic +
+      "</td><td class='num'>" + (row.no || "…") + "</td><td class='dt'>" + delY +
+      "</td><td class='num'>" + (nDel || "…") + "</td><td class='num'>" + row.tiv.toFixed(1) + "</td></tr>";
+  }).join("");
+})();
+
+/* ================= globe interaction ================= */
+let drag = null;
+cv.addEventListener("pointerdown", (ev) => {
+  if (viewMode === "map") { drag = {x:ev.clientX, y:ev.clientY, moved:false, map:true}; return; }
+  drag = {x:ev.clientX, y:ev.clientY, lam:lam0, phi:phi0, moved:false};
+  cv.setPointerCapture(ev.pointerId);
+  cv.classList.add("dragging");
+});
+cv.addEventListener("pointermove", (ev) => {
+  const rect = cv.getBoundingClientRect();
+  mouse = [ev.clientX-rect.left, ev.clientY-rect.top];
+  if (!drag) return;
+  const dx = ev.clientX-drag.x, dy = ev.clientY-drag.y;
+  if (Math.abs(dx)+Math.abs(dy) > 3) drag.moved = true;
+  if (drag.map) return;
+  const k = 1/(R*zoom);
+  lam0 = drag.lam + dx*k;
+  phi0 = Math.max(-1.45, Math.min(1.45, drag.phi + dy*k));
+});
+cv.addEventListener("pointerup", () => {
+  drag = null;
+  cv.classList.remove("dragging");
+});
+cv.addEventListener("pointerleave", () => { mouse = null; tip.style.display = "none"; });
+cv.addEventListener("wheel", (ev) => {
+  if (viewMode === "map") return;
+  ev.preventDefault();
+  zoom = Math.max(0.55, Math.min(2.6, zoom * (ev.deltaY < 0 ? 1.09 : 0.92)));
+}, {passive:false});
+
+function updateHover() {
+  hoverEv = null;
+  if (!mouse || drag) { tip.style.display = "none"; return; }
+  let best = null, bd = 14*14;
+  for (const t of hoverTargets) {
+    const d = (t.x-mouse[0])**2 + (t.y-mouse[1])**2;
+    if (d < bd) { bd = d; best = t; }
+  }
+  if (!best && heatOn) {
+    let bdot = null, bdd = 12*12;
+    for (const t of heatDotTargets) {
+      const d = (t.x-mouse[0])**2 + (t.y-mouse[1])**2;
+      if (d < bdd) { bdd = d; bdot = t; }
+    }
+    let cHit = null;
+    if (!bdot && viewMode === "map") {
+      for (const p of mapCountryPaths) {
+        if (p.v && ctx.isPointInPath(p.path, mouse[0]*DPR, mouse[1]*DPR)) { cHit = p; break; }
+      }
+    }
+    if (bdot || cHit) {
+      const label = bdot ? bdot.rec : (NE_TO_REC[cHit.name] || cHit.name);
+      const v = bdot ? bdot.v : cHit.v;
+      tip.innerHTML = '<div class="t-name">' + label + "</div>" +
+        '<div class="t-route">' + fmtTiv(v) + " TIV m. received by " + fmt(T) +
+        (catFilter !== "all" ? " · " + CATLABEL[catFilter] : "") + "</div>" +
+        '<div class="t-meta">TIV = SIPRI trend-indicator value, not $</div>';
+      tip.style.display = "block";
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let tx = mouse[0]+16, ty = mouse[1]-th-10;
+      if (tx+tw > W-8) tx = mouse[0]-tw-16;
+      if (ty < 8) ty = mouse[1]+18;
+      tip.style.left = tx+"px"; tip.style.top = ty+"px";
+      cv.style.cursor = "default";
+      return;
+    }
+  }
+  if (!best) { tip.style.display = "none"; return; }
+  hoverEv = best.e;
+  const e = best.e;
+  drawArc(e, 1, 0.95, Math.max(2, e.w));
+  const what = e.items.map(itemLine).join("<br>");
+  tip.innerHTML = '<div class="t-name"><span class="t-dot" style="background:'+e.col+'"></span>China → ' + e.rec + " · " + e.y + "</div>" +
+    '<div class="t-route">' + what + "</div>" +
+    '<div class="t-meta">' + CATLABEL[e.cat] + " · TIV " + e.tiv.toFixed(1) + "m (trend-indicator value, not $)</div>";
+  tip.style.display = "block";
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let tx = mouse[0]+16, ty = mouse[1]-th-10;
+  if (tx+tw > W-8) tx = mouse[0]-tw-16;
+  if (ty < 8) ty = mouse[1]+18;
+  tip.style.left = tx+"px"; tip.style.top = ty+"px";
+  cv.style.cursor = "pointer";
+}
+
+/* ================= boot ================= */
+resize();
+drawDensity();
+syncScrub();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
